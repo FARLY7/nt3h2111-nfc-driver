@@ -33,7 +33,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "nt3h.h"
-#include "logger.h"
+
 
 #define NFC_I2C_MEM_BLOCK_SIZE 16                       /* Size of NFC memory block in bytes, from I2C perspective */
 #define NFC_I2C_MEM_ADDRESS_SIZE (I2C_MEMADD_SIZE_8BIT) /* Size of NFC I2C memory address (8-Bits, or 16-bits) */
@@ -54,6 +54,8 @@ typedef struct
     uint8_t Data[NFC_I2C_MEM_BLOCK_SIZE];
 } NFC_Block;
 
+
+static enum nt3h_status null_ptr_check(struct nt3h_dev *dev);
 static NFC_StatusTypeDef NFC_ReadBlocks(NFC_HandleTypeDef *hnfc, uint16_t address, NFC_Block *block, uint16_t noOfBlocks, uint32_t timeout);
 static NFC_StatusTypeDef NFC_WriteBlocks(NFC_HandleTypeDef *hnfc, uint16_t address, NFC_Block *block, uint16_t noOfBlocks, uint32_t timeout);
 
