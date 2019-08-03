@@ -34,7 +34,6 @@
 #include <string.h>
 #include "nt3h.h"
 
-
 #define NFC_I2C_MEM_BLOCK_SIZE 16                       /* Size of NFC memory block in bytes, from I2C perspective */
 #define NFC_I2C_MEM_ADDRESS_SIZE (I2C_MEMADD_SIZE_8BIT) /* Size of NFC I2C memory address (8-Bits, or 16-bits) */
 #define NFC_SRAM_ADDRESS 0xF8                           /* Size of NFC SRAM Region */
@@ -49,51 +48,40 @@
 #define NFC_CC_ADDITIONAL 0x000000FFU
 
 /* Block of data as defined by NFC_I2C_MEM_BLOCK_SIZE */
-typedef struct
+struct data_block
 {
-    uint8_t Data[NFC_I2C_MEM_BLOCK_SIZE];
-} NFC_Block;
+    uint8_t data[NFC_I2C_MEM_BLOCK_SIZE];
+};
 
-
-static enum nt3h_status null_ptr_check(struct nt3h_dev *dev);
-static NFC_StatusTypeDef NFC_ReadBlocks(NFC_HandleTypeDef *hnfc, uint16_t address, NFC_Block *block, uint16_t noOfBlocks, uint32_t timeout);
-static NFC_StatusTypeDef NFC_WriteBlocks(NFC_HandleTypeDef *hnfc, uint16_t address, NFC_Block *block, uint16_t noOfBlocks, uint32_t timeout);
+static nt3h_status null_ptr_check(struct nt3h_dev *dev);
+static nt3h_status read_blocks(struct nt3h_dev *dev, uint16_t mem_addr, struct data_block *block, uint16_t block_cnt);
+static nt3h_status write_blocks(struct nt3h_dev *dev, uint16_t mem_addr, struct data_block *block, uint16_t block_cnt);
 
 /**
   * @brief  Initialise NFC device. Will check if device is alive over I2C
   * @param  *hnfc Pointer to NFC handler 
   * @retval HAL status
   */
-NFC_StatusTypeDef NFC_Init(NFC_HandleTypeDef *hnfc)
+nt3h_status nt3h_init(struct nt3h_dev *dev)
 {
-    /* Check the I2C handle allocation */
-    if (hnfc == NULL)
-        return NFC_ERROR;
+    nt3h_status rslt;
 
-    hnfc->State = NFC_STATE_BUSY;
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
 
-    /* 1. Connect to NFC device over I2C and check it is alive and accepting */
-    /* 2. Initialise NFC chip over I2C */
-    if (HAL_I2C_IsDeviceReady(hnfc->hi2c, hnfc->DevAddress, 5, NFC_DEFAULT_TIMEOUT) != HAL_OK)
+    /* Check if device is responding */
+    if ((rslt = nt3h_check(dev)) != NT3H_OK)
+        return rslt;
+
+    /* Read compatibility container from device */
+    if ((rslt = nt3h_read_cc(dev)) != NT3H_OK)
+        return rslt;
+
+    if (IS_CC_EMPTY(cc))
     {
-        Log_info("NFC: Device not responding");
-        hnfc->State = NFC_STATE_RESET;
-        return NFC_ERROR;
-    }
-
-    hnfc->State = NFC_STATE_READY;
-
-    if (NFC_ReadCC(hnfc) != NFC_OK)
-    {
-        Log_info("NFC: Unable to read Capability Container");
-        hnfc->State = NFC_STATE_RESET;
-        return NFC_ERROR;
-    }
-
-    if(hnfc->CC.MagicNumber == 0 && hnfc->CC.Version == 0 &&
-       hnfc->CC.MLEN == 0 && hnfc->CC.AccessControl == 0)
-    {
-        Log_info("NFC: Capability Container is empty");
+        //     (hnfc->CC.MagicNumber == 0 && hnfc->CC.Version == 0 &&
+        //    hnfc->CC.MLEN == 0 && hnfc->CC.AccessControl == 0)    {
 
         NFC_CCTypeDef cc = {
             .MagicNumber = 0xE1,
@@ -101,21 +89,12 @@ NFC_StatusTypeDef NFC_Init(NFC_HandleTypeDef *hnfc)
             .MLEN = 0x6D,
             .AccessControl = 0x00};
 
-        if (NFC_WriteCC(hnfc, &cc) != NFC_OK)
-        {
-            Log_info("NFC: Unable to program CC field");
-            return NFC_ERROR;
-        }
-        else
-        {
-            Log_info("NFC: Programmed CC field (%02X:%02X:%02X:%02X)", cc.MagicNumber,
-                                                        cc.Version,
-                                                        cc.MLEN,
-                                                        cc.AccessControl);
-        }
+        /* Write new compatibility container */
+        if ((nt3h_write_cc(dev, &cc)) != NT3H_OK)
+            return rslt;
     }
 
-    return NFC_OK;
+    return rslt;
 }
 
 /**
@@ -123,14 +102,15 @@ NFC_StatusTypeDef NFC_Init(NFC_HandleTypeDef *hnfc)
   * @param  *hnfc Pointer to NFC handler 
   * @retval HAL status
   */
-NFC_StatusTypeDef NFC_DeInit(NFC_HandleTypeDef *hnfc)
+nt3h_status nt3h_deinit(struct nt3h_dev *dev)
 {
-    /* Check the I2C handle allocation */
-    if (hnfc == NULL)
-        return NFC_ERROR;
+    nt3h_status rslt;
 
-    hnfc->State = NFC_STATE_RESET;
-    return NFC_OK;
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
+
+    return rslt;
 }
 
 /**
@@ -142,46 +122,39 @@ NFC_StatusTypeDef NFC_DeInit(NFC_HandleTypeDef *hnfc)
   * @param  timeout Timeout value for blocking 
   * @retval HAL status
   */
-static NFC_StatusTypeDef NFC_WriteBlocks(NFC_HandleTypeDef *hnfc, uint16_t address, NFC_Block *block, uint16_t noOfBlocks, uint32_t timeout)
+static nt3h_status write_blocks(struct nt3h_dev *dev, uint16_t mem_addr, struct data_block *block, uint16_t block_cnt)
 {
-    if (hnfc->State == NFC_STATE_READY)
+    nt3h_status rslt;
+
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
+
+    /* Check parameters are valid */
+    if (block == NULL || block_cnt == 0)
+        return NT3H_E_INVALID_ARGS;
+
+    while (block_cnt > 0U)
     {
-        if ((block == NULL) || (noOfBlocks == 0U))
-            return NFC_ERROR;
+        if ((rslt = write_mem(dev->dev_id, mem_addr, block->data, NFC_I2C_MEM_BLOCK_SIZE)) != NT3H_OK)
+            return rslt;
 
-        hnfc->State = NFC_STATE_BUSY;
-
-        while (noOfBlocks > 0U)
+        if ((mem_addr > NFC_SRAM_ADDRESS) && (mem_addr < (NFC_SRAM_ADDRESS + NFC_SRAM_LENGTH)))
         {
-            if (HAL_I2C_Mem_Write(hnfc->hi2c, hnfc->DevAddress, address, NFC_I2C_MEM_ADDRESS_SIZE, block->Data, NFC_I2C_MEM_BLOCK_SIZE, timeout) != HAL_OK)
-            {
-                Log_info("NFC: Unable to write to block 0x%04X", address);
-                hnfc->State = NFC_STATE_READY;
-                return NFC_ERROR;
-            }
-
-            if ((address > NFC_SRAM_ADDRESS) && (address < (NFC_SRAM_ADDRESS + NFC_SRAM_LENGTH)))
-            {
-                /* Address is within SRAM memory region. Time to write 1-block = 0.4ms. */
-            }
-            else
-            {
-                /* Address is within EEPROM memory region. Time to write 1-block = 4ms */
-                HAL_Delay(4); /* ALlow time for NFC to complete write to its memory */
-            }
-
-            block++; /* Move to next block of data */
-            address++;
-            noOfBlocks--;
+            /* Address is within SRAM memory region. Time to write 1-block = 0.4ms. */
+        }
+        else
+        {
+            /* Address is within EEPROM memory region. Time to write 1-block = 4ms */
+            delay_ms(4); /* ALlow time for NFC to complete write to its memory */
         }
 
-        hnfc->State = NFC_STATE_READY;
-        return NFC_OK;
+        block++; /* Move to next block of data */
+        mem_addr++;
+        block_cnt--;
     }
-    else
-    {
-        return NFC_BUSY;
-    }
+
+    return rslt;
 }
 
 /**
@@ -193,36 +166,29 @@ static NFC_StatusTypeDef NFC_WriteBlocks(NFC_HandleTypeDef *hnfc, uint16_t addre
   * @param  timeout Timeout value for blocking 
   * @retval HAL status
   */
-static NFC_StatusTypeDef NFC_ReadBlocks(NFC_HandleTypeDef *hnfc, uint16_t address, NFC_Block *block, uint16_t noOfBlocks, uint32_t timeout)
+static nt3h_status read_blocks(struct nt3h_dev *dev, uint16_t mem_addr, struct data_block *block, uint16_t block_cnt)
 {
-    if (hnfc->State == NFC_STATE_READY)
+    nt3h_status rslt;
+
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
+
+    /* Check parameters are valid */
+    if (block == NULL || block_cnt == 0)
+        return NT3H_E_INVALID_ARGS;
+
+    while (block_cnt > 0U)
     {
-        if ((block == NULL) || (noOfBlocks == 0U))
-            return NFC_ERROR;
+        if ((rslt = read_mem(dev->dev_id, mem_addr, block->data, NFC_I2C_MEM_BLOCK_SIZE)) != NT3H_OK)
+            return rslt;
 
-        hnfc->State = NFC_STATE_BUSY;
-
-        while (noOfBlocks > 0U)
-        {
-            if (HAL_I2C_Mem_Read(hnfc->hi2c, hnfc->DevAddress, address, NFC_I2C_MEM_ADDRESS_SIZE, block->Data, NFC_I2C_MEM_BLOCK_SIZE, timeout) != HAL_OK)
-            {
-                Log_info("NFC: Unable to read block 0x%04X", address);
-                hnfc->State = NFC_STATE_READY;
-                return NFC_ERROR;
-            }
-
-            block++; /* Move to next block of data */
-            address++;
-            noOfBlocks--;
-        }
-
-        hnfc->State = NFC_STATE_READY;
-        return NFC_OK;
+        block++; /* Move to next block of data */
+        mem_addr++;
+        block_cnt--;
     }
-    else
-    {
-        return NFC_BUSY;
-    }
+
+    return rslt;
 }
 
 /**
@@ -235,30 +201,37 @@ static NFC_StatusTypeDef NFC_ReadBlocks(NFC_HandleTypeDef *hnfc, uint16_t addres
   * @param  timeout Timeout value 
   * @retval HAL status
   */
-NFC_StatusTypeDef NFC_ReadMemory(NFC_HandleTypeDef *hnfc, uint16_t address, uint16_t byteOffset, uint8_t bytes[], size_t size, uint32_t timeout)
+nt3h_status nt3h_read_memory(struct nt3h_dev *dev, uint16_t mem_addr, uint16_t byte_offset, uint8_t *data, size_t len)
 {
-    /* Firstly, remove redundant offset if offset is greater than block size */
-    address += (byteOffset / NFC_I2C_MEM_BLOCK_SIZE);                             /* Increment address by number of whole blocks */
-    byteOffset -= (byteOffset / NFC_I2C_MEM_BLOCK_SIZE) * NFC_I2C_MEM_BLOCK_SIZE; /* Subtract offset by it's equivalent amount in bytes */
+    nt3h_status rslt;
 
-    volatile uint16_t blocksNeeded = size / NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many whole blocks */
-    volatile uint16_t partialBytes = size % NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many remainder bytes */
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
+
+    /* Check parameters are valid */
+    if (data == NULL || len == 0)
+        return NT3H_E_INVALID_ARGS;
+
+    /* Firstly, remove redundant offset if offset is greater than block size */
+    mem_addr += (byte_offset / NFC_I2C_MEM_BLOCK_SIZE);                             /* Increment address by number of whole blocks */
+    byte_offset -= (byte_offset / NFC_I2C_MEM_BLOCK_SIZE) * NFC_I2C_MEM_BLOCK_SIZE; /* Subtract offset by it's equivalent amount in bytes */
+
+    volatile uint16_t blocksNeeded = len / NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many whole blocks */
+    volatile uint16_t partialBytes = len % NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many remainder bytes */
 
     blocksNeeded += (partialBytes) ? 1 : 0;                                 /* Add extra block for remainder */
-    blocksNeeded += ((byteOffset + size) > NFC_I2C_MEM_BLOCK_SIZE) ? 1 : 0; /* If operation reads into next block, add another block */
+    blocksNeeded += ((byte_offset + len) > NFC_I2C_MEM_BLOCK_SIZE) ? 1 : 0; /* If operation reads into next block, add another block */
 
-    NFC_Block blocks[blocksNeeded];
+    struct data_block blocks[blocksNeeded];
 
-    if (NFC_ReadBlocks(hnfc, address, blocks, blocksNeeded, timeout) != NFC_OK)
-    {
-        Log_info("NFC: Unable to read block when reading bytes");
-        return NFC_ERROR;
-    }
+    if ((rslt = read_blocks(dev, mem_addr, blocks, blocksNeeded)) != NT3H_OK)
+        return rslt;
 
-    uint8_t *ptr = ((uint8_t *)blocks) + byteOffset;
-    memcpy(bytes, ptr, size);
+    uint8_t *ptr = ((uint8_t *)blocks) + byte_offset;
+    memcpy(data, ptr, len);
 
-    return NFC_OK;
+    return rslt;
 }
 
 /**
@@ -353,42 +326,32 @@ NFC_StatusTypeDef NFC_EraseMemory(NFC_HandleTypeDef *hnfc, uint16_t address, uin
   * @param  timeout Timeout value for blocking 
   * @retval HAL status
   */
-NFC_StatusTypeDef NFC_ReadRegister(NFC_HandleTypeDef *hnfc, uint8_t memAddress, uint8_t regAddress, uint8_t *regData, uint32_t timeout)
+nt3h_status nt3h_read_register(struct nt3h_dev *dev, uint8_t mem_addr, uint8_t reg_addr, uint8_t *data)
 {
-    if (hnfc->State == NFC_STATE_READY)
-    {
-        if (regData == NULL)
-            return NFC_ERROR;
+    nt3h_status rslt;
 
-        /* Create I2C payload to read from NFC register, according to NFC spec */
-        uint8_t txBuff[2] = {memAddress, regAddress};
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
 
-        hnfc->State = NFC_STATE_BUSY;
+    /* Check parameters are valid */
+    if (data == NULL)
+        return NT3H_E_INVALID_ARGS;
 
-        if (HAL_I2C_Master_Transmit(hnfc->hi2c, hnfc->DevAddress, txBuff, sizeof(txBuff), timeout) != HAL_OK)
-        {
-            Log_info("NFC: Unable to read session register %d at address 0x%02X", regAddress, memAddress);
-            hnfc->State = NFC_STATE_READY;
-            return NFC_ERROR;
-        }
+    /* Create I2C payload to read from NFC register, according to NFC spec */
+    uint8_t txBuff[2] = {mem_addr, reg_addr};
 
-        uint8_t rxBuff;
+    if ((rslt = write(dev->dev_id, txBuff, sizeof(txBuff))) != NT3H_OK)
+        return rslt;
 
-        if (HAL_I2C_Master_Receive(hnfc->hi2c, hnfc->DevAddress, &rxBuff, sizeof(rxBuff), timeout) != HAL_OK)
-        {
-            Log_info("NFC: Unable to read session register %d at address 0x%02X", regAddress, memAddress);
-            hnfc->State = NFC_STATE_READY;
-            return NFC_ERROR;
-        }
+    uint8_t rxBuff;
 
-        *regData = rxBuff;
-        hnfc->State = NFC_STATE_READY;
-        return HAL_OK;
-    }
-    else
-    {
-        return NFC_BUSY;
-    }
+    if ((rslt = read(dev->dev_id, &rxBuff, sizeof(rxBuff))) != NT3H_OK)
+        return rslt;
+
+    *data = rxBuff;
+
+    return rslt;
 }
 
 /**
@@ -401,29 +364,23 @@ NFC_StatusTypeDef NFC_ReadRegister(NFC_HandleTypeDef *hnfc, uint8_t memAddress, 
   * @param  timeout Timeout value for blocking 
   * @retval HAL status
   */
-NFC_StatusTypeDef NFC_WriteRegister(NFC_HandleTypeDef *hnfc, uint8_t memAddress, uint8_t regAddress, uint8_t mask, uint8_t regData, uint32_t timeout)
+nt3h_status nt3h_write_register(struct nt3h_dev *dev, uint8_t mem_addr, uint8_t reg_addr, uint8_t mask, uint8_t data)
 {
-    if (hnfc->State == NFC_STATE_READY)
-    {
-        hnfc->State = NFC_STATE_BUSY;
+    nt3h_status rslt;
 
-        /* Create I2C payload to write to NFC register according to NFC spec */
-        uint8_t txBuff[4] = {memAddress, regAddress, mask, regData};
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
 
-        if (HAL_I2C_Master_Transmit(hnfc->hi2c, hnfc->DevAddress, txBuff, sizeof(txBuff), timeout) != HAL_OK)
-        {
-            Log_info("NFC: Unable to write session register %d at address 0x%02X", regAddress, memAddress);
-            hnfc->State = NFC_STATE_READY;
-            return NFC_ERROR;
-        }
+    /*!! Check addresses are within bounds !! */
 
-        hnfc->State = NFC_STATE_READY;
-        return NFC_OK;
-    }
-    else
-    {
-        return NFC_BUSY;
-    }
+    /* Create I2C payload to write to NFC register according to NFC spec */
+    uint8_t txBuff[4] = {mem_addr, reg_addr, mask, data};
+
+    if((rslt = write(dev->dev_id, txBuff, sizeof(txBuff))) != NT3H_OK)
+        return rslt;
+
+    return rslt;
 }
 
 /**
@@ -436,25 +393,27 @@ NFC_StatusTypeDef NFC_WriteRegister(NFC_HandleTypeDef *hnfc, uint8_t memAddress,
   * @param  timeout Timeout value for blocking 
   * @retval HAL status
   */
-NFC_StatusTypeDef NFC_WriteConfig(NFC_HandleTypeDef *hnfc, uint8_t memAddress, uint8_t regAddress, uint8_t mask, uint8_t regData, uint32_t timeout)
+nt3h_status nt3h_write_config(struct nt3h_dev *dev, uint8_t mem_addr, uint8_t reg_addr, uint8_t mask, uint8_t data)
 {
-    NFC_Block block;
+    nt3h_status rslt;
 
-    if (NFC_ReadBlocks(hnfc, memAddress, &block, 1, timeout) != NFC_OK)
-    {
-        Log_info("NFC: Unable to read config register %d at address 0x%02X", regAddress, memAddress);
-        return NFC_ERROR;
-    }
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
 
-    block.Data[regAddress] = (block.Data[regAddress] & mask) | regData;
+    /*!! Check addresses are within bounds !! */
 
-    if (NFC_WriteBlocks(hnfc, memAddress, &block, 1, timeout) != NFC_OK)
-    {
-        Log_info("NFC: Unable to write config register %d at address 0x%02X", regAddress, memAddress);
-        return NFC_ERROR;
-    }
+    struct data_block block;
 
-    return NFC_OK;
+    if ((rslt = read_blocks(dev, mem_addr, &block, 1)) != NT3H_OK)
+        return rslt;
+    
+    block.data[reg_addr] = (block.data[reg_addr] & mask) | data;
+
+    if((rslt = write_blocks(dev, mem_addr, &block, 1)) != NT3H_OK)
+        return rslt;
+
+    return rslt;
 }
 
 /**
@@ -466,21 +425,24 @@ NFC_StatusTypeDef NFC_WriteConfig(NFC_HandleTypeDef *hnfc, uint8_t memAddress, u
   * @param  timeout Timeout value for blocking 
   * @retval HAL status
   */
-NFC_StatusTypeDef NFC_ReadConfig(NFC_HandleTypeDef *hnfc, uint8_t memAddress, uint8_t regAddress, uint8_t *regData, uint32_t timeout)
+nt3h_status nt3h_read_config(struct nt3h_dev *dev, uint8_t mem_addr, uint8_t reg_addr, uint8_t *data)
 {
-        if (regData == NULL)
-            return NFC_ERROR;
+    nt3h_status rslt;
 
-        NFC_Block block;
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
 
-        if (NFC_ReadBlocks(hnfc, memAddress, &block, 1, timeout) != NFC_OK)
-        {
-            Log_info("NFC: Unable to read config register %d at address 0x%02X", regAddress, memAddress);
-            return NFC_ERROR;
-        }
+    /*!! Check addresses are within bounds !! */
 
-        *regData = block.Data[regAddress];
-        return NFC_OK;
+    struct data_block block;
+
+    if ((rslt = read_blocks(dev, mem_addr, &block, 1)) != NT3H_OK)
+        return rslt;
+
+    *data = block.data[reg_addr];
+    
+    return rslt;
 }
 
 /**
@@ -556,136 +518,136 @@ NFC_StatusTypeDef NFC_WriteCC(NFC_HandleTypeDef *hnfc, NFC_CCTypeDef *cc)
     return NFC_OK;
 }
 
-/* =================================================================== */
-/* =============== Helpful toString Log Print Functions ============== */
-#if DEBUG_NFC == 1
+// /* =================================================================== */
+// /* =============== Helpful toString Log Print Functions ============== */
+// #if DEBUG_NFC == 1
 
-void NFC_PrintDeviceProperties(NFC_HandleTypeDef *hnfc)
-{
-    NFC_Block block;
+// void NFC_PrintDeviceProperties(NFC_HandleTypeDef *hnfc)
+// {
+//     NFC_Block block;
 
-    Log_info("----- NFC Device Details ----");
+//     Log_info("----- NFC Device Details ----");
 
-    if (NFC_ReadBlocks(hnfc, 0x00, &block, 1, 1000) == NFC_OK)
-    {
-        Log_info("Addr: %02X", block.Data[0]);
+//     if (NFC_ReadBlocks(hnfc, 0x00, &block, 1, 1000) == NFC_OK)
+//     {
+//         Log_info("Addr: %02X", block.Data[0]);
 
-        Log_info("Serial: %02X:%02X:%02X:%02X:%02X:%02X",
-                 block.Data[1], block.Data[2],
-                 block.Data[3], block.Data[4],
-                 block.Data[5], block.Data[6]);
+//         Log_info("Serial: %02X:%02X:%02X:%02X:%02X:%02X",
+//                  block.Data[1], block.Data[2],
+//                  block.Data[3], block.Data[4],
+//                  block.Data[5], block.Data[6]);
 
-        Log_info("Static lock bytes: %02X:%02X", block.Data[10], block.Data[11]);
-    }
+//         Log_info("Static lock bytes: %02X:%02X", block.Data[10], block.Data[11]);
+//     }
 
-    if (NFC_ReadCC(hnfc) == NFC_OK)
-    {
-        Log_info("CC: %02X:%02X:%02X:%02X",
-                 hnfc->CC.MagicNumber,
-                 hnfc->CC.Version,
-                 hnfc->CC.MLEN,
-                 hnfc->CC.AccessControl);
+//     if (NFC_ReadCC(hnfc) == NFC_OK)
+//     {
+//         Log_info("CC: %02X:%02X:%02X:%02X",
+//                  hnfc->CC.MagicNumber,
+//                  hnfc->CC.Version,
+//                  hnfc->CC.MLEN,
+//                  hnfc->CC.AccessControl);
 
-        Log_info("Memory Size: %d bytes", hnfc->CC.MLEN * 8);
-    }
+//         Log_info("Memory Size: %d bytes", hnfc->CC.MLEN * 8);
+//     }
 
-    Log_info("-----------------------------");
-}
+//     Log_info("-----------------------------");
+// }
 
-void NFC_PrintMemory(NFC_HandleTypeDef *hnfc, uint16_t blockAddress, uint16_t noOfBlocks)
-{
-    Log_info("****** NFC Memory Dump *****");
-    NFC_Block blocks[noOfBlocks];
-    uint8_t buffer[128];
+// void NFC_PrintMemory(NFC_HandleTypeDef *hnfc, uint16_t blockAddress, uint16_t noOfBlocks)
+// {
+//     Log_info("****** NFC Memory Dump *****");
+//     NFC_Block blocks[noOfBlocks];
+//     uint8_t buffer[128];
 
-    if (NFC_ReadBlocks(hnfc, blockAddress, blocks, noOfBlocks, 1000) == NFC_OK)
-    {
-        for (size_t blockNo = 0; blockNo < noOfBlocks; blockNo++)
-        {
-            uint8_t *ptr = &buffer[0];
-            ptr += sprintf((char *)ptr, "0x%02X", blockAddress);
+//     if (NFC_ReadBlocks(hnfc, blockAddress, blocks, noOfBlocks, 1000) == NFC_OK)
+//     {
+//         for (size_t blockNo = 0; blockNo < noOfBlocks; blockNo++)
+//         {
+//             uint8_t *ptr = &buffer[0];
+//             ptr += sprintf((char *)ptr, "0x%02X", blockAddress);
 
-            for (int i = 0; i < 16; i += 4)
-            {
-                ptr += sprintf((char *)ptr, "\t");
+//             for (int i = 0; i < 16; i += 4)
+//             {
+//                 ptr += sprintf((char *)ptr, "\t");
 
-                for (int j = 0; j < 4; j++)
-                {
-                    ptr += sprintf((char *)ptr, "%02X ", blocks[blockNo].Data[i + j]);
-                }
+//                 for (int j = 0; j < 4; j++)
+//                 {
+//                     ptr += sprintf((char *)ptr, "%02X ", blocks[blockNo].Data[i + j]);
+//                 }
 
-                ptr += sprintf((char *)ptr, "| ");
-                for (int j = 0; j < 4; j++)
-                {
-                    //if((block->Data[i+j] >= 65 && block->Data[i+j] <= 90) ||
-                    //   (block->Data[i+j] >= 97 && block->Data[i+j] <= 122)) {
-                    if (blocks[blockNo].Data[i + j] >= 33 && blocks[blockNo].Data[i + j] <= 126)
-                    {
-                        ptr += sprintf((char *)ptr, "%c", blocks[blockNo].Data[i + j]);
-                    }
-                    else
-                    {
-                        ptr += sprintf((char *)ptr, ".");
-                    }
-                }
-                ptr += sprintf((char *)ptr, " |");
+//                 ptr += sprintf((char *)ptr, "| ");
+//                 for (int j = 0; j < 4; j++)
+//                 {
+//                     //if((block->Data[i+j] >= 65 && block->Data[i+j] <= 90) ||
+//                     //   (block->Data[i+j] >= 97 && block->Data[i+j] <= 122)) {
+//                     if (blocks[blockNo].Data[i + j] >= 33 && blocks[blockNo].Data[i + j] <= 126)
+//                     {
+//                         ptr += sprintf((char *)ptr, "%c", blocks[blockNo].Data[i + j]);
+//                     }
+//                     else
+//                     {
+//                         ptr += sprintf((char *)ptr, ".");
+//                     }
+//                 }
+//                 ptr += sprintf((char *)ptr, " |");
 
-                Log_info("%s", buffer);
-                ptr = &buffer[0];
-            }
+//                 Log_info("%s", buffer);
+//                 ptr = &buffer[0];
+//             }
 
-            blockAddress++;
-        }
+//             blockAddress++;
+//         }
 
-        Log_info("****************************");
-    }
-}
+//         Log_info("****************************");
+//     }
+// }
 
-void NFC_PrintSessionRegisters(NFC_HandleTypeDef *hnfc)
-{
-    uint8_t SessionReg[8];
-    HAL_StatusTypeDef resp = 0;
+// void NFC_PrintSessionRegisters(NFC_HandleTypeDef *hnfc)
+// {
+//     uint8_t SessionReg[8];
+//     HAL_StatusTypeDef resp = 0;
 
-    resp |= NFC_ReadRegister(hnfc, 0xFE, 0, &SessionReg[0], 1000);
-    resp |= NFC_ReadRegister(hnfc, 0xFE, 1, &SessionReg[1], 1000);
-    resp |= NFC_ReadRegister(hnfc, 0xFE, 2, &SessionReg[2], 1000);
-    resp |= NFC_ReadRegister(hnfc, 0xFE, 3, &SessionReg[3], 1000);
-    resp |= NFC_ReadRegister(hnfc, 0xFE, 4, &SessionReg[4], 1000);
-    resp |= NFC_ReadRegister(hnfc, 0xFE, 5, &SessionReg[5], 1000);
-    resp |= NFC_ReadRegister(hnfc, 0xFE, 6, &SessionReg[6], 1000);
-    //   resp |= NFC_ReadRegister(hnfc, 0xFE, 7, &SessionReg[7], 1000);
+//     resp |= NFC_ReadRegister(hnfc, 0xFE, 0, &SessionReg[0], 1000);
+//     resp |= NFC_ReadRegister(hnfc, 0xFE, 1, &SessionReg[1], 1000);
+//     resp |= NFC_ReadRegister(hnfc, 0xFE, 2, &SessionReg[2], 1000);
+//     resp |= NFC_ReadRegister(hnfc, 0xFE, 3, &SessionReg[3], 1000);
+//     resp |= NFC_ReadRegister(hnfc, 0xFE, 4, &SessionReg[4], 1000);
+//     resp |= NFC_ReadRegister(hnfc, 0xFE, 5, &SessionReg[5], 1000);
+//     resp |= NFC_ReadRegister(hnfc, 0xFE, 6, &SessionReg[6], 1000);
+//     //   resp |= NFC_ReadRegister(hnfc, 0xFE, 7, &SessionReg[7], 1000);
 
-    if (resp == HAL_OK)
-    {
-        Log_info("--- NFC Session Registers ---");
-        Log_info("           NC_REG: 0x%02X", SessionReg[0]);
-        Log_info("  LAST_NDEF_BLOCK: 0x%02X", SessionReg[1]);
-        Log_info("SRAM_MIRROR_BLOCK: 0x%02X", SessionReg[2]);
-        Log_info("           WDT_LS: 0x%02X", SessionReg[3]);
-        Log_info("           WDT_MS: 0x%02X", SessionReg[4]);
-        Log_info("    I2C_CLOCK_STR: 0x%02X", SessionReg[5]);
-        Log_info("           NS_REG: 0x%02X", SessionReg[6]);
-        //    Log_info("              RFU: 0x%02X", SessionReg[7]);
-        Log_info("-----------------------------");
-    }
-}
+//     if (resp == HAL_OK)
+//     {
+//         Log_info("--- NFC Session Registers ---");
+//         Log_info("           NC_REG: 0x%02X", SessionReg[0]);
+//         Log_info("  LAST_NDEF_BLOCK: 0x%02X", SessionReg[1]);
+//         Log_info("SRAM_MIRROR_BLOCK: 0x%02X", SessionReg[2]);
+//         Log_info("           WDT_LS: 0x%02X", SessionReg[3]);
+//         Log_info("           WDT_MS: 0x%02X", SessionReg[4]);
+//         Log_info("    I2C_CLOCK_STR: 0x%02X", SessionReg[5]);
+//         Log_info("           NS_REG: 0x%02X", SessionReg[6]);
+//         //    Log_info("              RFU: 0x%02X", SessionReg[7]);
+//         Log_info("-----------------------------");
+//     }
+// }
 
-void NFC_PrintConfigRegisters(NFC_HandleTypeDef *hnfc)
-{
-    NFC_Block configBlock;
+// void NFC_PrintConfigRegisters(NFC_HandleTypeDef *hnfc)
+// {
+//     NFC_Block configBlock;
 
-    if (NFC_ReadBlocks(hnfc, 0x3A, &configBlock, 1, 1000) == NFC_OK)
-    {
-        Log_info("---- NFC Config Registers ----");
-        Log_info("           NC_REG: 0x%02X", configBlock.Data[0]);
-        Log_info("  LAST_NDEF_BLOCK: 0x%02X", configBlock.Data[1]);
-        Log_info("SRAM_MIRROR_BLOCK: 0x%02X", configBlock.Data[2]);
-        Log_info("           WDT_LS: 0x%02X", configBlock.Data[3]);
-        Log_info("           WDT_MS: 0x%02X", configBlock.Data[4]);
-        Log_info("    I2C_CLOCK_STR: 0x%02X", configBlock.Data[5]);
-        Log_info("         REG_LOCK: 0x%02X", configBlock.Data[6]);
-        Log_info("              RFU: 0x%02X", configBlock.Data[7]);
-        Log_info("-----------------------------");
-    }
-}
-#endif
+//     if (NFC_ReadBlocks(hnfc, 0x3A, &configBlock, 1, 1000) == NFC_OK)
+//     {
+//         Log_info("---- NFC Config Registers ----");
+//         Log_info("           NC_REG: 0x%02X", configBlock.Data[0]);
+//         Log_info("  LAST_NDEF_BLOCK: 0x%02X", configBlock.Data[1]);
+//         Log_info("SRAM_MIRROR_BLOCK: 0x%02X", configBlock.Data[2]);
+//         Log_info("           WDT_LS: 0x%02X", configBlock.Data[3]);
+//         Log_info("           WDT_MS: 0x%02X", configBlock.Data[4]);
+//         Log_info("    I2C_CLOCK_STR: 0x%02X", configBlock.Data[5]);
+//         Log_info("         REG_LOCK: 0x%02X", configBlock.Data[6]);
+//         Log_info("              RFU: 0x%02X", configBlock.Data[7]);
+//         Log_info("-----------------------------");
+//     }
+// }
+// #endif

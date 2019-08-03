@@ -61,7 +61,8 @@ typedef enum {
 /*!
  * @brief Type declarations
  */
-typedef void (*nt3h_com_func_ptr_t)(uint8_t dev_id, uint8_t reg_addr, uint8_t *data, uint32_t len);
+typedef void (*nt3h_com_mem_func_ptr_t)(uint8_t dev_id, uint8_t *data, uint32_t len);
+typedef void (*nt3h_com_mem_func_ptr_t)(uint8_t dev_id, uint8_t addr, uint8_t *data, uint32_t len);
 typedef void (*nt3h_delay_ms_func_ptr_t)(uint32_t period);
 
 typedef struct {
@@ -71,10 +72,23 @@ typedef struct {
     uint8_t AccessControl;
 } NFC_CCTypeDef;
 
-struct {
+typedef enum {
+    NT3H_IO_NORMAL,
+    NT3H_IO_MEMORY
+} nt3h_com_type;
+
+struct nt3h_dev {
 
     /* Device ID */
     uint16_t dev_id;
+
+    /*! Perhaps just use enum to differentiate between mem and normal */
+
+    /* User defined I2C write function pointer */
+    nt3h_com_func_ptr_t mem_write;
+
+    /* User defined I2C read function pointer */
+    nt3h_com_func_ptr_t mem_read;
 
     /* User defined I2C write function pointer */
     nt3h_com_func_ptr_t write;
@@ -86,9 +100,9 @@ struct {
     nt3h_delay_ms_func_ptr_t delay_ms;
 
     //uint32_t            Password;   /* Password for memory protection */
-    volatile NFC_CCTypeDef       CC;         /* Capability Container */
+    //volatile NFC_CCTypeDef       CC;         /* Capability Container */
 
-} nt3h_dev;
+};
 
 #ifdef __cplusplus
 }

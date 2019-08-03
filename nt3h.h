@@ -71,6 +71,7 @@ nt3h_status nt3h_write_cc(struct nt3h_dev *dev, NFC_CCTypeDef *cc);     /* Write
 
 nt3h_status nt3h_IRQHandler(void);
 
+nt3h_status nt3h_check(struct nt3h_dev *dev);
 
 // /* Helpful toString log print functions */
 // #if DEBUG_NFC == 1
