@@ -244,17 +244,27 @@ nt3h_status nt3h_read_memory(struct nt3h_dev *dev, uint16_t mem_addr, uint16_t b
   * @param  timeout Timeout value 
   * @retval HAL status
   */
-NFC_StatusTypeDef NFC_WriteMemory(NFC_HandleTypeDef *hnfc, uint16_t address, uint16_t byteOffset, uint8_t bytes[], size_t size, uint32_t timeout)
+nt3h_status nt3h_write_memory(struct nt3h_dev *dev, uint16_t mem_addr, uint16_t byte_offset, uint8_t *data, size_t len)
 {
-    /* Firstly, remove redundant offset if offset is greater than block size */
-    address += (byteOffset / NFC_I2C_MEM_BLOCK_SIZE);                             /* Increment address by number of whole blocks */
-    byteOffset -= (byteOffset / NFC_I2C_MEM_BLOCK_SIZE) * NFC_I2C_MEM_BLOCK_SIZE; /* Subtract offset by it's equivalent amount in bytes */
+    nt3h_status rslt;
 
-    volatile uint16_t blocksNeeded = size / NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many whole blocks */
-    volatile uint16_t partialBytes = size % NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many remainder bytes */
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
+
+    /*!! Check addresses are within bounds !! */
+    if(data == NULL || len == 0)
+        return NT3H_E_INVALID_ARGS;
+
+    /* Firstly, remove redundant offset if offset is greater than block size */
+    mem_addr += (byte_offset / NFC_I2C_MEM_BLOCK_SIZE);                             /* Increment address by number of whole blocks */
+    byte_offset -= (byte_offset / NFC_I2C_MEM_BLOCK_SIZE) * NFC_I2C_MEM_BLOCK_SIZE; /* Subtract offset by it's equivalent amount in bytes */
+
+    volatile uint16_t blocksNeeded = len / NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many whole blocks */
+    volatile uint16_t partialBytes = len % NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many remainder bytes */
 
     blocksNeeded += (partialBytes) ? 1 : 0;                                 /* Add extra block for remainder */
-    blocksNeeded += ((byteOffset + size) > NFC_I2C_MEM_BLOCK_SIZE) ? 1 : 0; /* If operation reads into next block, add another block */
+    blocksNeeded += ((byte_offset + len) > NFC_I2C_MEM_BLOCK_SIZE) ? 1 : 0; /* If operation reads into next block, add another block */
 
     NFC_Block blocks[blocksNeeded];
 
@@ -285,36 +295,40 @@ NFC_StatusTypeDef NFC_WriteMemory(NFC_HandleTypeDef *hnfc, uint16_t address, uin
   * @param  timeout Timeout value 
   * @retval HAL status
   */
-NFC_StatusTypeDef NFC_EraseMemory(NFC_HandleTypeDef *hnfc, uint16_t address, uint16_t byteOffset, size_t size, uint32_t timeout)
+nt3h_status nt3h_erase_memory(struct nt3h_dev *dev, uint16_t mem_addr, uint16_t byte_offset, size_t len)
 {
-    /* Firstly, remove redundant offset if offset is greater than block size */
-    address += (byteOffset / NFC_I2C_MEM_BLOCK_SIZE);                             /* Increment address by number of whole blocks */
-    byteOffset -= (byteOffset / NFC_I2C_MEM_BLOCK_SIZE) * NFC_I2C_MEM_BLOCK_SIZE; /* Subtract offset by it's equivalent amount in bytes */
+    nt3h_status rslt;
 
-    volatile uint16_t blocksNeeded = size / NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many whole blocks */
-    volatile uint16_t partialBytes = size % NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many remainder bytes */
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
+
+    /*!! Check addresses are within bounds !! */
+    if(len == 0)
+        return NT3H_E_INVALID_ARGS;
+
+    /* Firstly, remove redundant offset if offset is greater than block size */
+    mem_addr += (byte_offset / NFC_I2C_MEM_BLOCK_SIZE);                             /* Increment address by number of whole blocks */
+    byte_offset -= (byte_offset / NFC_I2C_MEM_BLOCK_SIZE) * NFC_I2C_MEM_BLOCK_SIZE; /* Subtract offset by it's equivalent amount in bytes */
+
+    volatile uint16_t blocksNeeded = len / NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many whole blocks */
+    volatile uint16_t partialBytes = len % NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many remainder bytes */
 
     blocksNeeded += (partialBytes) ? 1 : 0;                                 /* Add extra block for remainder */
-    blocksNeeded += ((byteOffset + size) > NFC_I2C_MEM_BLOCK_SIZE) ? 1 : 0; /* If operation reads into next block, add another block */
+    blocksNeeded += ((byte_offset + len) > NFC_I2C_MEM_BLOCK_SIZE) ? 1 : 0; /* If operation reads into next block, add another block */
 
-    NFC_Block blocks[blocksNeeded];
+    struct data_block blocks[blocksNeeded];
 
-    if (NFC_ReadBlocks(hnfc, address, blocks, blocksNeeded, timeout) != NFC_OK)
-    {
-        Log_info("NFC: Unable to read block when erasing bytes");
-        return NFC_ERROR;
-    }
+    if ((rslt = read_blocks(dev, mem_addr, blocks, blocksNeeded)) != NT3H_OK)
+        return rslt;
 
-    uint8_t *ptr = ((uint8_t *)blocks) + byteOffset;
-    memset(ptr, NFC_MEMORY_ERASE_VALUE, size);
+    uint8_t *ptr = ((uint8_t *)blocks) + byte_offset;
+    memset(ptr, NFC_MEMORY_ERASE_VALUE, len);
 
-    if (NFC_WriteBlocks(hnfc, address, blocks, blocksNeeded, timeout) != NFC_OK)
-    {
-        Log_info("NFC: Unable to write block when erasing bytes");
-        return NFC_ERROR;
-    }
+    if ((rslt = write_blocks(dev, mem_addr, blocks, blocksNeeded)) != NT3H_OK)
+        return rslt;
 
-    return NFC_OK;
+    return rslt;
 }
 
 /**
