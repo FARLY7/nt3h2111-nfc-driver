@@ -441,7 +441,7 @@ nt3h_status nt3h_read_config(struct nt3h_dev *dev, uint8_t mem_addr, uint8_t reg
         return rslt;
 
     *data = block.data[reg_addr];
-    
+
     return rslt;
 }
 
@@ -451,21 +451,29 @@ nt3h_status nt3h_read_config(struct nt3h_dev *dev, uint8_t mem_addr, uint8_t reg
   * @param  addr I2C Address (UNSHIFTED). Warning: Must shift left by 1 before calling API.
   * @retval HAL status
   */
-NFC_StatusTypeDef NFC_WriteAddr(NFC_HandleTypeDef *hnfc, uint8_t addr)
+nt3h_status nt3h_write_addr(struct nt3h_dev *dev, uint8_t addr)
 {
-    NFC_Block block;
+    nt3h_status rslt;
+
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
+
+    /*!! Check addresses are within bounds !! */
+
+    struct data_block block;
 
     /* Copy current contents of Block 0 */
-    if (NFC_ReadBlocks(hnfc, 0x00, &block, 1, NFC_DEFAULT_TIMEOUT) != NFC_OK)
-        return NFC_ERROR;
-
-    block.Data[0] = addr; /* Overwrite block with new addr value */
+    if ((rslt = read_blocks(dev, 0x00, &block, 1)) != NT3H_OK)
+        return rslt;
+        
+    block.data[0] = addr; /* Overwrite block with new addr value */
 
     /* Write new block back to Block 0 */
-    if (NFC_WriteBlocks(hnfc, 0x00, &block, 1, NFC_DEFAULT_TIMEOUT) != NFC_OK)
-        return NFC_ERROR;
+    if ((rslt = write_blocks(dev, 0x00, &block, 1)) != NT3H_OK)
+        return rslt;
 
-    return NFC_OK;
+    return rslt;
 }
 
 /* Check if there is a NFC field present on the NFC antenna
@@ -476,46 +484,72 @@ NFC_StatusTypeDef NFC_WriteAddr(NFC_HandleTypeDef *hnfc, uint8_t addr)
  * NS_REG Register = Byte 6
  * RF_FIELD_PRESENT Field = Bit 0
  */
-NFC_StatusTypeDef NFC_ReadFieldPresent(NFC_HandleTypeDef *hnfc, uint8_t *isFieldPresent)
+nt3h_status nt3h_read_field_present(struct nt3h_dev *dev, uint8_t *is_field_present)
 {
+    nt3h_status rslt;
+
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
+
+    /*!! Check addresses are within bounds !! */
+    if(is_field_present == NULL)
+        return NT3H_E_NULL_PTR;
+
     uint8_t NS_REG;
 
-    if (NFC_ReadRegister(hnfc, 0xFE, 6, &NS_REG, NFC_DEFAULT_TIMEOUT) != NFC_OK)
-        return NFC_ERROR;
+    if ((rslt = nt3h_read_register(dev, 0xFE, 6, &NS_REG)) != NT3H_OK)
+        return rslt;
 
-    *isFieldPresent = NS_REG & 0x01; /* Mask for RF_FIELD_PRESENT */
+    *is_field_present = NS_REG & 0x01; /* Mask for RF_FIELD_PRESENT */
 
-    return NFC_OK;
+    return rslt;
 }
 
 /* Read Capability Container field */
-NFC_StatusTypeDef NFC_ReadCC(NFC_HandleTypeDef *hnfc)
+nt3h_status nt3h_read_cc(struct nt3h_dev *dev)
 {
-    NFC_Block block;
+    nt3h_status rslt;
 
-    if (NFC_ReadBlocks(hnfc, 0x00, &block, 1, NFC_DEFAULT_TIMEOUT) != NFC_OK)
-        return NFC_ERROR;
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
 
-    memcpy(&hnfc->CC, &block.Data[12], 4);
+    /*!! Check addresses are within bounds !! */
 
-    return NFC_OK;
+    struct data_block block;
+
+    if ((rslt = nt3h_read_blocks(dev, 0x00, &block, 1)) != NT3H_OK)
+        return rslt;
+
+    memcpy(&dev->CC, &block.data[12], 4);
+
+    return rslt;
 }
 
 /* Write Capability Container field */
-NFC_StatusTypeDef NFC_WriteCC(NFC_HandleTypeDef *hnfc, NFC_CCTypeDef *cc)
+nt3h_status nt3h_write_cc(struct nt3h_dev *dev, NFC_CCTypeDef *cc)
 {
-    NFC_Block block;
+    nt3h_status rslt;
 
-    if (NFC_ReadBlocks(hnfc, 0x00, &block, 1, NFC_DEFAULT_TIMEOUT) != NFC_OK)
-        return NFC_ERROR;
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
 
-    memcpy(&block.Data[12], cc, 4);
+    /*!! Check addresses are within bounds !! */
+    
+    struct data_block block;
+
+    if ((rslt = nt3h_read_blocks(dev, 0x00, &block, 1)) != NT3H_OK)
+        return rslt;
+
+    memcpy(&block.data[12], cc, 4);
 
     /* Write new block back to Block 0 */
-    if (NFC_WriteBlocks(hnfc, 0x00, &block, 1, NFC_DEFAULT_TIMEOUT) != NFC_OK)
-        return NFC_ERROR;
+    if ((rslt = nt3h_write_blocks(dev, 0x00, &block, 1)) != NT3H_OK)
+        return rslt;
 
-    return NFC_OK;
+    return rslt;
 }
 
 // /* =================================================================== */
