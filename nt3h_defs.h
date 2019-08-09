@@ -44,8 +44,14 @@ extern "C" {
  */
 #include <stdint.h>
 
+
+#define NTAG_1K
+#define NTAG_2K
+
 #define NT3H_DEFAULT_I2C_ADDRESS        0x40
 
+#define NT3H_MEM_BLOCK_CONFIG_1K        (0x3A)
+#define NT3H_MEM_BLOCK_SESSION_REGS_1K  (0xFE)
 
 /*!
  * @brief NT3H API status codes
@@ -56,14 +62,15 @@ typedef enum {
     NT3H_E_DEV_NOT_FOUND,
     NT3H_E_INVALID_ARGS,
     NT3H_E_BUSY,
-} nt3h_status;
+} nt3h_status_t;
 
 /*!
  * @brief Type declarations
  */
-typedef void (*nt3h_com_mem_func_ptr_t)(uint8_t dev_id, uint8_t *data, uint32_t len);
-typedef void (*nt3h_com_mem_func_ptr_t)(uint8_t dev_id, uint8_t addr, uint8_t *data, uint32_t len);
-typedef void (*nt3h_delay_ms_func_ptr_t)(uint32_t period);
+//typedef void (*nt3h_com_mem_func_ptr_t)(uint8_t dev_id, uint8_t *data, uint32_t len);
+//typedef void (*nt3h_com_mem_func_ptr_t)(uint8_t dev_id, uint8_t addr, uint8_t *data, uint32_t len);
+typedef nt3h_status_t (*nt3h_com_func_ptr_t)(uint8_t dev_id, uint8_t *data, uint32_t len);
+typedef void (*nt3h_delay_ms_func_ptr_t)(uint32_t period_ms);
 
 typedef struct {
     uint8_t MagicNumber;
@@ -72,23 +79,23 @@ typedef struct {
     uint8_t AccessControl;
 } NFC_CCTypeDef;
 
-typedef enum {
-    NT3H_IO_NORMAL,
-    NT3H_IO_MEMORY
-} nt3h_com_type;
+// typedef enum {
+//     NT3H_IO_NORMAL,
+//     NT3H_IO_MEMORY
+// } nt3h_com_type;
 
-struct nt3h_dev {
+
+typedef struct {
 
     /* Device ID */
     uint16_t dev_id;
 
     /*! Perhaps just use enum to differentiate between mem and normal */
 
-    /* User defined I2C write function pointer */
-    nt3h_com_func_ptr_t mem_write;
-
-    /* User defined I2C read function pointer */
-    nt3h_com_func_ptr_t mem_read;
+    // /* User defined I2C write function pointer */
+    // nt3h_com_func_ptr_t mem_write;
+    // /* User defined I2C read function pointer */
+    // nt3h_com_func_ptr_t mem_read;
 
     /* User defined I2C write function pointer */
     nt3h_com_func_ptr_t write;
@@ -102,7 +109,7 @@ struct nt3h_dev {
     //uint32_t            Password;   /* Password for memory protection */
     //volatile NFC_CCTypeDef       CC;         /* Capability Container */
 
-};
+} nt3h_dev_t;
 
 #ifdef __cplusplus
 }
