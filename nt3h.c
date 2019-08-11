@@ -34,208 +34,166 @@
 #include <string.h>
 #include "nt3h.h"
 
-#define NFC_I2C_MEM_BLOCK_SIZE 16                       /* Size of NFC memory block in bytes, from I2C perspective */
-#define NFC_I2C_MEM_ADDRESS_SIZE (I2C_MEMADD_SIZE_8BIT) /* Size of NFC I2C memory address (8-Bits, or 16-bits) */
-#define NFC_SRAM_ADDRESS 0xF8                           /* Size of NFC SRAM Region */
-#define NFC_SRAM_LENGTH 64                              /* Bytes */
-#define NFC_MEMORY_ERASE_VALUE 0x00U
-#define NFC_DEFAULT_TIMEOUT 1000 /* Default timeout value used in blocking mode (ms) */
+/* NT3H specific definitions */
+#define NT3H_I2C_MEM_BLOCK_SIZE      16     /* Number of bytes in I2C memory block */
+#define NT3H_SRAM_ADDRESS            0xF8   /* Memory address of SRAM region */
+#define NT3H_SRAM_LENGTH             64     /* Length of SRAM region */
+#define NT3H_MEMORY_ERASE_VALUE      0x00U  /* Value used to erase memory */
 
 /* Capability Container field masks */
-#define NFC_CC_MAGIC_NUMBER 0xFF000000U
-#define NFC_CC_VER_ACCESS 0x00FF0000U
-#define NFC_CC_MLEN 0x0000FF00U
-#define NFC_CC_ADDITIONAL 0x000000FFU
+#define CAPABILITY_MAGIC_NUM    0xFF000000U
+#define CAPABILITY_VER_ACCESS   0x00FF0000U
+#define CAPABILITY_MLEN         0x0000FF00U
+#define CAPABILITY_ADDITIONAL   0x000000FFU
 
-/* Block of data as defined by NFC_I2C_MEM_BLOCK_SIZE */
-typedef struct 
+/*
+ * @brief Structure determining size of r/w operations.
+ */
+typedef struct
 {
-    uint8_t data[NFC_I2C_MEM_BLOCK_SIZE];
+    uint8_t data[NT3H_I2C_MEM_BLOCK_SIZE];
 } nt3h_block_t;
 
-static nt3h_status_t null_ptr_check(nt3h_dev_t *dev);
+/* Factory default values of memory blocks 0, 56, 57, 58. */
+static const nt3h_block_t factory_value_block_0  = { NT3H_FACTORY_VALUE_BLOCK_0  };
+static const nt3h_block_t factory_value_block_56 = { NT3H_FACTORY_VALUE_BLOCK_56 };
+static const nt3h_block_t factory_value_block_57 = { NT3H_FACTORY_VALUE_BLOCK_57 };
+static const nt3h_block_t factory_value_block_58 = { NT3H_FACTORY_VALUE_BLOCK_58 };
+
+
+/*!
+ * @brief Read block(s) of data from NT3H memory.
+ * 
+ * @param[in]    dev : Pointer to NT3H device structure.
+ * @param[in]   addr : Memory address to read blocks.
+ * @param[out] block : Pointer to memory location to store block(s) read.
+ * @param[in]    cnt : Number of blocks to read.
+ * 
+ * @return Result of API execution status.
+ */
 static nt3h_status_t read_blocks(nt3h_dev_t *dev, uint16_t addr, nt3h_block_t *block, uint16_t cnt);
+
+/*!
+ * @brief Write block(s) of data to NT3H memory.
+ * 
+ * @param[in]    dev : Pointer to NT3H device structure.
+ * @param[in]   addr : Memory address to write blocks.
+ * @param[out] block : Pointer to memory location containing blocks to write.
+ * @param[in]    cnt : Number of blocks to write.
+ * 
+ * @return Result of API execution status.
+ */
 static nt3h_status_t write_blocks(nt3h_dev_t *dev, uint16_t addr, nt3h_block_t *block, uint16_t cnt);
 
-/**
-  * @brief  Initialise NFC device. Will check if device is alive over I2C
-  * @param  *hnfc Pointer to NFC handler 
-  * @retval HAL status
-  */
-nt3h_status_t nt3h_init(struct nt3h_dev *dev)
+/*!
+ * @brief This internal API is used to validate the device pointer for
+ * null conditions.
+ *
+ * @param[in] dev : Pointer to NT3H device structure.
+ *
+ * @return Result of API execution status.
+ */
+static nt3h_status_t null_ptr_check(nt3h_dev_t *dev);
+
+/*!
+ * @brief This API intialises NT3H NFC device.
+ */
+nt3h_status_t nt3h_init(nt3h_dev_t *dev)
 {
     nt3h_status_t rslt;
 
     /* Check for null pointer in device structure */
     if ((rslt = null_ptr_check(dev)) != NT3H_OK)
-        goto error;
+        return rslt;
 
     /* Check if device is responding */
     if ((rslt = nt3h_check(dev)) != NT3H_OK)
-        goto error;
+        return rslt;
 
-    /* Read compatibility container from device */
-    if ((rslt = nt3h_read_cc(dev)) != NT3H_OK)
-        goto error;
+    capability_cont_t cc;
 
-    if (IS_CC_EMPTY(cc))
+    /* Read Capability Container from device */
+    if ((rslt = nt3h_read_capability_cont(dev, &cc)) != NT3H_OK)
+        return rslt;
+
+    /* If the Capability Container is blank, then configure */
+    if(cc.magic_number == 0 && cc.version == 0 &&
+       cc.mlen == 0 && cc.access_control == 0) 
     {
-        //     (hnfc->CC.MagicNumber == 0 && hnfc->CC.Version == 0 &&
-        //    hnfc->CC.MLEN == 0 && hnfc->CC.AccessControl == 0)    {
-
-        NFC_CCTypeDef cc = {
-            .MagicNumber = 0xE1,
-            .Version = 0x10,
-            .MLEN = 0x6D,
-            .AccessControl = 0x00};
-
+        cc.magic_number = 0xE1;
+        cc.version = 0x10;
+        cc.mlen = 0x6D;             /* WARNING: Should set to correct full user memory size? */
+        cc.access_control = 0x00;
+        
         /* Write new compatibility container */
-        if ((nt3h_write_cc(dev, &cc)) != NT3H_OK)
-            goto error;
+        if ((rslt = nt3h_write_cc(dev, &cc)) != NT3H_OK)
+            return rslt;
     }
 
-error:
     return rslt;
 }
 
-/**
-  * @brief  De-initialise NFC device.
-  * @param  *hnfc Pointer to NFC handler 
-  * @retval HAL status
-  */
-nt3h_status_t nt3h_deinit(struct nt3h_dev *dev)
+/*!
+ * @brief This API de-intialises NT3H NFC device.
+ */
+nt3h_status_t nt3h_deinit(nt3h_dev_t *dev)
 {
     nt3h_status_t rslt;
 
     /* Check for null pointer in device structure */
     if ((rslt = null_ptr_check(dev)) != NT3H_OK)
-        goto error;
+        return rslt;
 
-error:
     return rslt;
 }
 
-/**
-  * @brief  Write a block(s) of data in blocking mode to NFC memory (EEPROM or SRAM).
-  * @param  *hnfc Pointer to NFC handler
-  * @param  address Beginning address of first block
-  * @param  *block Pointer to NFC Block(s) containing data
-  * @param  noOfBlocks Number of NFC Block(s) to write
-  * @param  timeout Timeout value for blocking 
-  * @retval HAL status
-  */
-static nt3h_status_t write_blocks(nt3h_dev_t *dev, uint16_t addr, nt3h_block_t *block, uint16_t cnt)
+nt3h_status_t nt3h_factory_reset(nt3h_dev_t *dev)
 {
     nt3h_status_t rslt;
-
+    
     /* Check for null pointer in device structure */
     if ((rslt = null_ptr_check(dev)) != NT3H_OK)
-        goto error;
+        return rslt;
 
-    /* Check parameters are valid */
-    if (block == NULL || block_cnt == 0)
-    {
-        rstl = NT3H_E_INVALID_ARGS;
-        goto error;
-    }
 
-    while (block_cnt > 0U)
-    {
-        if ((rslt = write_mem(dev->dev_id, mem_addr, block->data, NFC_I2C_MEM_BLOCK_SIZE)) != NT3H_OK)
-            goto error;
+    if((rslt = write_blocks(dev, , &factory_value_block_0, 1)) != NT3H_OK)
+        return rslt;
 
-        if ((mem_addr > NFC_SRAM_ADDRESS) && (mem_addr < (NFC_SRAM_ADDRESS + NFC_SRAM_LENGTH)))
-        {
-            /* Address is within SRAM memory region. Time to write 1-block = 0.4ms. */
-        }
-        else
-        {
-            /* Address is within EEPROM memory region. Time to write 1-block = 4ms */
-            delay_ms(4); /* ALlow time for NFC to complete write to its memory */
-        }
+    if((rslt = write_blocks(dev, , &factory_value_block_56, 1)) != NT3H_OK)
+        return rslt;
 
-        block++; /* Move to next block of data */
-        mem_addr++;
-        block_cnt--;
-    }
+    if((rslt = write_blocks(dev, , &factory_value_block_57, 1)) != NT3H_OK)
+        return rslt;
 
-error:
+    if((rslt = write_blocks(dev, , &factory_value_block_58, 1)) != NT3H_OK)
+        return rslt;
+
     return rslt;
 }
 
-/**
-  * @brief  Read a block(s) of data in blocking mode from NFC memory (EEPROM or SRAM).
-  * @param  *hnfc Pointer to NFC handler
-  * @param  address Beginning address of first block
-  * @param  *block Pointer to NFC Block(s) to dump data
-  * @param  noOfBlocks Number of NFC Block(s) to read
-  * @param  timeout Timeout value for blocking 
-  * @retval HAL status
-  */
-static nt3h_status_t read_blocks(nt3h_dev_t *dev, uint16_t addr, nt3h_block_t *block, uint16_t cnt)
-{
-    nt3h_status_t rslt;
-
-    /* Check for null pointer in device structure */
-    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
-        goto error;
-
-    /* Check parameters are valid */
-    if (block == NULL || block_cnt == 0)
-    {
-        rslt = NT3H_E_INVALID_ARGS;
-        goto error;
-    }
-
-    while (block_cnt > 0U)
-    {
-        if ((rslt = read_mem(dev->dev_id, mem_addr, block->data, NFC_I2C_MEM_BLOCK_SIZE)) != NT3H_OK)
-            goto error;
-
-        block++; /* Move to next block of data */
-        mem_addr++;
-        block_cnt--;
-    }
-
-error:
-    return rslt;
-}
-
-/**
-  * @brief  Read number of bytes from NFC memory
-  * @param  *hnfc Pointer to NFC handler
-  * @param  address I2C memory address
-  * @param  byteOffset Byte offset from I2C memory address
-  * @param  bytes[] Buffer to store bytes read
-  * @param  size Number of bytes to read
-  * @param  timeout Timeout value 
-  * @retval HAL status
-  */
+/*!
+ * @brief This API reads a number of bytes from NT3H memory.
+ */
 nt3h_status_t nt3h_read_bytes(nt3h_dev_t *dev, uint16_t addr, uint16_t offset, uint8_t *data, size_t len)
 {
     nt3h_status_t rslt;
 
     /* Check for null pointer in device structure */
     if ((rslt = null_ptr_check(dev)) != NT3H_OK)
-        goto error;
+        return rslt;
 
     /* Check parameters are valid */
     if (data == NULL || len == 0)
-    {
-        rslt = NT3H_E_INVALID_ARGS;
-        goto error;
-    }
+        return NT3H_E_INVALID_ARGS;
 
-    /* Firstly, remove redundant offset if offset is greater than block size */
-    addr += (offset / NFC_I2C_MEM_BLOCK_SIZE);                             /* Increment address by number of whole blocks */
-    offset -= (offset / NFC_I2C_MEM_BLOCK_SIZE) * NFC_I2C_MEM_BLOCK_SIZE; /* Subtract offset by it's equivalent amount in bytes */
+    /* Remove any redundant offset if offset is greater than a block length */
+    /* Incremembet address by number of blocks and subtract offset by byte equivalent */
+    addr   += (offset / NT3H_I2C_MEM_BLOCK_SIZE);
+    offset -= (offset / NT3H_I2C_MEM_BLOCK_SIZE) * NT3H_I2C_MEM_BLOCK_SIZE;
 
-    volatile uint16_t blocks_needed = len / NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many whole blocks */
-    volatile uint16_t partial_bytes = len % NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many remainder bytes */
-
-    blocks_needed += (partial_bytes) ? 1 : 0;                                 /* Add extra block for remainder */
-    blocks_needed += ((offset + len) > NFC_I2C_MEM_BLOCK_SIZE) ? 1 : 0; /* If operation reads into next block, add another block */
-
+    /* Calculate the number of blocks needed to cover this r/w operation. */
+    uint8_t blocks_needed = calculate_blocks_needed(offset, len);
+    
     nt3h_block_t blocks[blocks_needed];
 
     if ((rslt = read_blocks(dev, addr, blocks, blocks_needed)) != NT3H_OK)
@@ -248,261 +206,198 @@ error:
     return rslt;
 }
 
-/**
-  * @brief  Write number of bytes to NFC memory
-  * @param  *hnfc Pointer to NFC handler
-  * @param  address I2C memory address
-  * @param  byteOffset Byte offset from I2C memory address
-  * @param  bytes[] Buffer containing bytes to write
-  * @param  size Number of bytes to write
-  * @param  timeout Timeout value 
-  * @retval HAL status
-  */
+/*!
+ * @brief This API write a number of bytes to NT3H memory.
+ */
 nt3h_status_t nt3h_write_bytes(nt3h_dev_t *dev, uint16_t addr, uint16_t offset, uint8_t *data, size_t len)
 {
     nt3h_status_t rslt;
 
     /* Check for null pointer in device structure */
     if ((rslt = null_ptr_check(dev)) != NT3H_OK)
-        goto error;
- 
+        return rslt;
+
     /*!! Check addresses are within bounds !! */
-    if(data == NULL || len == 0)
-    {
-        rslt = NT3H_E_INVALID_ARGS;
-        goto error;
-    }
+    if (data == NULL || len == 0)
+        return NT3H_E_INVALID_ARGS;
 
-    /* Firstly, remove redundant offset if offset is greater than block size */
-    addr += (offset / NFC_I2C_MEM_BLOCK_SIZE);                             /* Increment address by number of whole blocks */
-    offset -= (offset / NFC_I2C_MEM_BLOCK_SIZE) * NFC_I2C_MEM_BLOCK_SIZE; /* Subtract offset by it's equivalent amount in bytes */
+    /* Remove any redundant offset if offset is greater than a block length */
+    /* Incremembet address by number of blocks and subtract offset by byte equivalent */
+    addr   += (offset / NT3H_I2C_MEM_BLOCK_SIZE);
+    offset -= (offset / NT3H_I2C_MEM_BLOCK_SIZE) * NT3H_I2C_MEM_BLOCK_SIZE;
 
-    volatile uint16_t blocks_needed = len / NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many whole blocks */
-    volatile uint16_t partial_bytes = len % NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many remainder bytes */
-
-    blocks_needed += (partial_bytes) ? 1 : 0;                                 /* Add extra block for remainder */
-    blocks_needed += ((offset + len) > NFC_I2C_MEM_BLOCK_SIZE) ? 1 : 0; /* If operation reads into next block, add another block */
+    /* Calculate the number of blocks needed to cover this r/w operation. */
+    uint8_t blocks_needed = calculate_blocks_needed(offset, len);
 
     nt3h_block_t blocks[blocks_needed];
 
-    if ((rslt = read_blocks(hnfc, address, blocks, blocks_needed)) != NT3H_OK)
-        goto error;
+    if ((rslt = read_blocks(dev, addr, blocks, blocks_needed)) != NT3H_OK)
+        return rslt;
 
     uint8_t *ptr = ((uint8_t *)blocks) + offset;
-    memcpy(ptr, bytes, size);
+    memcpy(ptr, data, len);
 
-    if ((rslt= write_blocks(hnfc, address, blocks, blocks_needed)) != NT3H_OK)
-        goto error;
+    if ((rslt = write_blocks(dev, addr, blocks, blocks_needed)) != NT3H_OK)
+        return rslt;
 
-error:
-    return NFC_OK;
+    return rslt;
 }
 
-/**
-  * @brief  Erase number of bytes of NFC memory
-  * @param  *hnfc Pointer to NFC handler
-  * @param  address I2C memory address
-  * @param  byteOffset Byte offset from I2C memory address
-  * @param  size Number of bytes to erase
-  * @param  timeout Timeout value 
-  * @retval HAL status
-  */
+/*!
+ * @brief This API erases a number of bytes in NT3H memory.
+ */
 nt3h_status_t nt3h_erase_bytes(nt3h_dev_t *dev, uint16_t addr, uint16_t offset, size_t len)
 {
     nt3h_status_t rslt;
 
     /* Check for null pointer in device structure */
     if ((rslt = null_ptr_check(dev)) != NT3H_OK)
-        goto error;
+        return rslt;
 
     /*!! Check addresses are within bounds !! */
-    if(len == 0)
-    {
-        rslt = NT3H_E_INVALID_ARGS;
-        goto error;
-    }
+    if (len == 0)
+        return NT3H_E_INVALID_ARGS;
 
-    /* Firstly, remove redundant offset if offset is greater than block size */
-    addr += (offset / NFC_I2C_MEM_BLOCK_SIZE);                             /* Increment address by number of whole blocks */
-    offset -= (offset / NFC_I2C_MEM_BLOCK_SIZE) * NFC_I2C_MEM_BLOCK_SIZE; /* Subtract offset by it's equivalent amount in bytes */
+    /* Remove any redundant offset if offset is greater than a block length */
+    /* Incremembet address by number of blocks and subtract offset by byte equivalent */
+    addr   += (offset / NT3H_I2C_MEM_BLOCK_SIZE);
+    offset -= (offset / NT3H_I2C_MEM_BLOCK_SIZE) * NT3H_I2C_MEM_BLOCK_SIZE;
 
-    volatile uint16_t blocks_needed = len / NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many whole blocks */
-    volatile uint16_t partial_bytes = len % NFC_I2C_MEM_BLOCK_SIZE; /* Calculate how many remainder bytes */
-
-    blocks_needed += (partial_bytes) ? 1 : 0;                                 /* Add extra block for remainder */
-    blocks_needed += ((offset + len) > NFC_I2C_MEM_BLOCK_SIZE) ? 1 : 0; /* If operation reads into next block, add another block */
+    /* Calculate the number of blocks needed to cover this r/w operation. */
+    uint8_t blocks_needed = calculate_blocks_needed(offset, len);
 
     nt3h_block_t blocks[blocks_needed];
 
     if ((rslt = read_blocks(dev, addr, blocks, blocks_needed)) != NT3H_OK)
-        goto error;
+        return rslt;
 
     uint8_t *ptr = ((uint8_t *)blocks) + offset;
-    memset(ptr, NFC_MEMORY_ERASE_VALUE, len);
+    memset(ptr, NT3H_MEMORY_ERASE_VALUE, len);
 
     if ((rslt = write_blocks(dev, addr, blocks, blocks_needed)) != NT3H_OK)
-        goto error;
+        return rslt;
 
-error:
     return rslt;
 }
 
-/**
-  * @brief  Read a session register from NFC memory.
-  * @param  *hnfc Pointer to NFC handler
-  * @param  memAddress Beginning address of session registers
-  * @param  regAddress Number of register within register block
-  * @param  *regData buffer to store register value
-  * @param  timeout Timeout value for blocking 
-  * @retval HAL status
-  */
+/*!
+ * @brief This API reads the 1-byte value of a Session register within NT3H memory.
+ */
 nt3h_status_t nt3h_read_register(nt3h_dev_t *dev, uint8_t reg, uint8_t *data)
 {
     nt3h_status_t rslt;
 
     /* Check for null pointer in device structure */
     if ((rslt = null_ptr_check(dev)) != NT3H_OK)
-        goto error;
+        return rslt;
 
     /* Check parameters are valid */
     if (data == NULL)
-    {
-        rslt = NT3H_E_INVALID_ARGS;
-        goto error;
-    }
+        return NT3H_E_INVALID_ARGS;
 
     /* Create I2C payload to read from NFC register, according to NFC spec */
-    uint8_t buf[2] = {NT3H_MEM_BLOCK_SESSION_REGS_1K, reg};
+    uint8_t buf[2] = { NT3H_MEM_BLOCK_SESSION_REGS_1K, reg };
 
-    if ((rslt = write(dev->dev_id, buf, sizeof(buf))) != NT3H_OK)
-        goto error;
+    if ((rslt = dev->write(dev->dev_id, buf, sizeof(buf))) != NT3H_OK)
+        return rslt;
 
-
-    if ((rslt = read(dev->dev_id, buf, 1)) != NT3H_OK)
-        goto error;
+    if ((rslt = dev->read(dev->dev_id, buf, 1)) != NT3H_OK)
+        return rslt;
 
     *data = buf[0];
 
-error:
     return rslt;
 }
 
-/**
-  * @brief  Write to session register in NFC memory.
-  * @param  *hnfc Pointer to NFC handler
-  * @param  memAddress Beginning address of session registers
-  * @param  regAddress Number of register within register block
-  * @param  mask Register write mask
-  * @param  regData Value to write to register
-  * @param  timeout Timeout value for blocking 
-  * @retval HAL status
-  */
+/*!
+ * @brief This API writes the 1-byte value to a Session register within NT3H memory.
+ */
 nt3h_status_t nt3h_write_register(nt3h_dev_t *dev, uint8_t reg, uint8_t mask, uint8_t data)
 {
     nt3h_status_t rslt;
 
     /* Check for null pointer in device structure */
     if ((rslt = null_ptr_check(dev)) != NT3H_OK)
-        goto error;
-    
+        return rslt;
+
     /*!! Check addresses are within bounds !! */
 
     /* Create I2C payload to write to NFC register according to NFC spec */
     uint8_t buf[4] = {NT3H_MEM_BLOCK_SESSION_REGS_1K, reg, mask, data};
 
-    if((rslt = write(dev->dev_id, buf, sizeof(buf))) != NT3H_OK)
+    if ((rslt = dev->write(dev->dev_id, buf, sizeof(buf))) != NT3H_OK)
+        return rslt;
+
+    return rslt;
+}
+
+/*!
+ * @brief This API reads the 1-byte value of a Configuration register within NT3H memory.
+ */
+nt3h_status_t nt3h_read_config(nt3h_dev_t *dev, uint8_t reg, uint8_t *data)
+{
+    nt3h_status_t rslt;
+    nt3h_block_t block;
+
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
+
+    /*!! Check addresses are within bounds !! */
+
+    if ((rslt = read_blocks(dev, NT3H_MEM_BLOCK_CONFIG_1K, &block, 1)) != NT3H_OK)
+        return rslt;
+
+    *data = block.data[reg];
+
+    return rslt;
+}
+
+/*!
+ * @brief This API writes the 1-byte value to a Configuration register within NT3H memory.
+ */
+nt3h_status_t nt3h_write_config(nt3h_dev_t *dev, uint8_t reg, uint8_t mask, uint8_t data)
+{
+    nt3h_status_t rslt;
+    nt3h_block_t block;
+
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
+
+    /*!! Check addresses are within bounds !! */
+
+    if ((rslt = read_blocks(dev, NT3H_MEM_BLOCK_CONFIG_1K, &block, 1)) != NT3H_OK)
+        return rslt;
+
+    block.data[reg] = (block.data[reg] & mask) | data;
+
+    if ((rslt = write_blocks(dev, NT3H_MEM_BLOCK_CONFIG_1K, &block, 1)) != NT3H_OK)
         return rslt;
 
     return rslt;
 }
 
 /**
-  * @brief  Write to configuration register in NFC memory.
-  * @param  *hnfc Pointer to NFC handler
-  * @param  memAddress Beginning address of configuration registers
-  * @param  regAddress Number of register within register block
-  * @param  mask Register write mask
-  * @param  regData Value to write to register
-  * @param  timeout Timeout value for blocking 
-  * @retval HAL status
-  */
-nt3h_status_t nt3h_write_config(nt3h_dev_t *dev, uint8_t reg, uint8_t mask, uint8_t data)
-{
-    nt3h_status_t rslt;
-
-    /* Check for null pointer in device structure */
-    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
-        goto error;
-
-    /*!! Check addresses are within bounds !! */
-
-    nt3h_block_t block;
-
-    if ((rslt = read_blocks(dev, NT3H_MEM_BLOCK_CONFIG_1K, &block, 1)) != NT3H_OK)
-        goto error;
-
-    block.data[reg] = (block.data[reg] & mask) | data;
-
-    if((rslt = write_blocks(dev, NT3H_MEM_BLOCK_CONFIG_1K, &block, 1)) != NT3H_OK)
-        goto error;
-
-error:
-    return rslt;
-}
-
-/**
-  * @brief  Read configuration register from NFC memory.
-  * @param  *hnfc Pointer to NFC handler
-  * @param  memAddress Beginning address of configuration registers
-  * @param  regAddress Number of register within register block
-  * @param  *regData Buffer to store register value
-  * @param  timeout Timeout value for blocking 
-  * @retval HAL status
-  */
-nt3h_status_t nt3h_read_config(nt3h_dev_t *dev, uint8_t reg, uint8_t *data)
-{
-    nt3h_status_t rslt;
-
-    /* Check for null pointer in device structure */
-    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
-        goto error;
-
-    /*!! Check addresses are within bounds !! */
-
-    nt3h_block_t block;
-
-    if ((rslt = read_blocks(dev, NT3H_MEM_BLOCK_CONFIG_1K, &block, 1)) != NT3H_OK)
-        goto error;
-
-    *data = block.data[reg];
-
-error:
-    return rslt;
-}
-
-/**
-  * @brief  Program I2C address of NFC device by writing to Addr field 
+  * @brief  Program I2C address of NFC device by writing to Addr field
   * @param  *hnfc Pointer to NFC handler
   * @param  addr I2C Address (UNSHIFTED). Warning: Must shift left by 1 before calling API.
   * @retval HAL status
   */
-nt3h_status nt3h_write_addr(struct nt3h_dev *dev, uint8_t addr)
+nt3h_status_t nt3h_change_i2c_address(nt3h_dev_t *dev, uint8_t i2c_addr)
 {
-    nt3h_status rslt;
+    nt3h_status_t rslt;
+    nt3h_block_t block;
 
     /* Check for null pointer in device structure */
     if ((rslt = null_ptr_check(dev)) != NT3H_OK)
         return rslt;
 
-    /*!! Check addresses are within bounds !! */
-
-    struct data_block block;
-
     /* Copy current contents of Block 0 */
     if ((rslt = read_blocks(dev, 0x00, &block, 1)) != NT3H_OK)
         return rslt;
-        
-    block.data[0] = addr; /* Overwrite block with new addr value */
+
+    block.data[0] = i2c_addr; 
 
     /* Write new block back to Block 0 */
     if ((rslt = write_blocks(dev, 0x00, &block, 1)) != NT3H_OK)
@@ -511,77 +406,87 @@ nt3h_status nt3h_write_addr(struct nt3h_dev *dev, uint8_t addr)
     return rslt;
 }
 
-/* Check if there is a NFC field present on the NFC antenna
- * This is achieved by performing an I2C memory read on the
- * NS_REG location and checking the RF_FIELD_PRESENT field
- * 
- * Session Registers Address = 0xFE
- * NS_REG Register = Byte 6
- * RF_FIELD_PRESENT Field = Bit 0
+/*!
+ * @brief This API checks if there is currently an NFC field present on the NFC antenna.
  */
-nt3h_status nt3h_read_field_present(struct nt3h_dev *dev, uint8_t *is_field_present)
+nt3h_status_t nt3h_is_field_present(nt3h_dev_t *dev, bool *is_present)
 {
-    nt3h_status rslt;
-
-    /* Check for null pointer in device structure */
-    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
-        return rslt;
-
-    /*!! Check addresses are within bounds !! */
-    if(is_field_present == NULL)
-        return NT3H_E_NULL_PTR;
-
+    nt3h_status_t rslt;
     uint8_t NS_REG;
 
-    if ((rslt = nt3h_read_register(dev, 0xFE, 6, &NS_REG)) != NT3H_OK)
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
         return rslt;
 
-    *is_field_present = NS_REG & 0x01; /* Mask for RF_FIELD_PRESENT */
+    if(is_present == NULL)
+        return NT3H_E_NULL_PTR;
+
+
+    if ((rslt = nt3h_read_register(dev, 6, &NS_REG)) != NT3H_OK)
+        return rslt;
+
+    *is_present = NS_REG & 0x01; /* Mask for RF_FIELD_PRESENT */
 
     return rslt;
 }
 
-/* Read Capability Container field */
-nt3h_status nt3h_read_cc(struct nt3h_dev *dev)
+/*!
+ * @brief This API reads the Capability Container memory region of the device.
+ */
+nt3h_status_t nt3h_read_capability_cont(nt3h_dev_t *dev, capability_cont_t *cc)
 {
-    nt3h_status rslt;
+    nt3h_status_t rslt;
+    nt3h_block_t block;
 
     /* Check for null pointer in device structure */
     if ((rslt = null_ptr_check(dev)) != NT3H_OK)
         return rslt;
 
-    /*!! Check addresses are within bounds !! */
-
-    struct data_block block;
-
-    if ((rslt = nt3h_read_blocks(dev, 0x00, &block, 1)) != NT3H_OK)
+    if ((rslt = read_blocks(dev, 0x00, &block, 1)) != NT3H_OK)
         return rslt;
 
-    memcpy(&dev->CC, &block.data[12], 4);
+    memcpy(cc, &block.data[12], 4);
 
     return rslt;
 }
 
-/* Write Capability Container field */
-nt3h_status nt3h_write_cc(struct nt3h_dev *dev, NFC_CCTypeDef *cc)
+/*!
+ * @brief This API writes the Capability Container memory region of the device.
+ */
+nt3h_status_t nt3h_write_capability_cont(nt3h_dev_t *dev, capability_cont_t *cc)
 {
-    nt3h_status rslt;
+    nt3h_status_t rslt;
+    nt3h_block_t block;
 
     /* Check for null pointer in device structure */
     if ((rslt = null_ptr_check(dev)) != NT3H_OK)
         return rslt;
 
-    /*!! Check addresses are within bounds !! */
-    
-    struct data_block block;
-
-    if ((rslt = nt3h_read_blocks(dev, 0x00, &block, 1)) != NT3H_OK)
+    if ((rslt = read_blocks(dev, 0x00, &block, 1)) != NT3H_OK)
         return rslt;
 
     memcpy(&block.data[12], cc, 4);
 
     /* Write new block back to Block 0 */
-    if ((rslt = nt3h_write_blocks(dev, 0x00, &block, 1)) != NT3H_OK)
+    if ((rslt = write_blocks(dev, 0x00, &block, 1)) != NT3H_OK)
+        return rslt;
+
+    return rslt;
+}
+
+/*!
+ * @brief This API checks the device is responding to I2C commands.
+ */
+nt3h_status_t nt3h_check(nt3h_dev_t *dev)
+{
+    nt3h_status_t rslt;
+    nt3h_block_t block;
+
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
+
+    if ((rslt = read_blocks(dev, 0x00, &block, 1)) != NT3H_OK)
         return rslt;
 
     return rslt;
@@ -720,3 +625,112 @@ nt3h_status nt3h_write_cc(struct nt3h_dev *dev, NFC_CCTypeDef *cc)
 //     }
 // }
 // #endif
+
+/*!
+ * @brief Read block(s) of data from NFC memory.
+ */
+static nt3h_status_t read_blocks(nt3h_dev_t *dev, uint16_t addr, nt3h_block_t *block, uint16_t cnt)
+{
+    nt3h_status_t rslt;
+
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
+
+    /* Check parameters are valid */
+    if (block == NULL || cnt == 0)
+        return NT3H_E_INVALID_ARGS;
+
+    while (cnt > 0U)
+    {
+        if ((rslt = read_mem(dev->dev_id, addr, block->data, NFC_I2C_MEM_BLOCK_SIZE)) != NT3H_OK)
+            return rslt;
+
+        block++; /* Move to next block of data */
+        addr++;
+        cnt--;
+    }
+
+    return rslt;
+}
+
+/*!
+ * @brief Write block(s) of data to NT3H memory.
+ */
+static nt3h_status_t write_blocks(nt3h_dev_t *dev, uint16_t addr, nt3h_block_t *block, uint16_t cnt)
+{
+    nt3h_status_t rslt;
+
+    /* Check for null pointer in device structure */
+    if ((rslt = null_ptr_check(dev)) != NT3H_OK)
+        return rslt;
+
+    /* Check parameters are valid */
+    if (block == NULL || cnt == 0)
+        return NT3H_E_INVALID_ARGS;
+
+    while (cnt > 0U)
+    {
+        if ((rslt = dev->write(dev->dev_id, addr, block->data, NT3H_I2C_MEM_BLOCK_SIZE)) != NT3H_OK)
+            return rslt;
+
+        if ((addr > NT3H_SRAM_ADDRESS) && (addr < (NT3H_SRAM_ADDRESS + NT3H_SRAM_LENGTH)))
+        {
+            /* Address is within SRAM memory region. Time to write 1-block = 0.4ms. */
+        }
+        else
+        {
+            /* Address is within EEPROM memory region. Time to write 1-block = 4ms */
+            delay_ms(4); /* ALlow time for NFC to complete write to its memory */
+        }
+
+        block++; /* Move to next block of data */
+        addr++;
+        cnt--;
+    }
+
+    return rslt;
+}
+
+/*!
+ * @bried This internal API is used to calculate the number of blocks needed
+ * in a r/w operation to ensure all memory regions are covered.
+ */
+static size_t calculate_blocks_needed(uint16_t offset, size_t len)
+{
+    /* Calculate how many whole blocks */
+    uint16_t blocks_needed = len / NT3H_I2C_MEM_BLOCK_SIZE;
+    
+    /* Calculate how many remainder bytes */
+    uint16_t partial_bytes = len % NT3H_I2C_MEM_BLOCK_SIZE; 
+
+    /* Add extra block for remainder */
+    blocks_needed += (partial_bytes) ? 1 : 0;
+    
+    /* If operation reads into next block, add another block */
+    blocks_needed += ((offset + len) > NT3H_I2C_MEM_BLOCK_SIZE) ? 1 : 0;
+
+    return blocks_needed;
+}
+
+/*!
+ * @brief This internal API is used to validate the device pointer for
+ * null conditions.
+ */
+static nt3h_status_t null_ptr_check(nt3h_dev_t *dev)
+{
+    nt3h_status_t rslt;
+
+    if (dev == NULL || dev->read == NULL || dev->write == NULL)
+    {
+        /* Device structure pointer is not valid */
+        rslt = NT3H_E_NULL_PTR;
+    }
+    else
+    {
+        /* Device structure is fine */
+        rslt = NT3H_OK;
+    }
+
+    return rslt;
+}

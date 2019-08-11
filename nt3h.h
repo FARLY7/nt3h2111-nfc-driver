@@ -39,41 +39,168 @@
 extern "C" {
 #endif
 
-#include <stdint.h>
 #include "nt3h_defs.h"
+#include <stdint.h>
+#include <stdbool.h>
 
 
-/* ==== Initialisation & Deinitialisation ==== */
+/* =========== TODO ============ */
+/* ADD PROTECTION OF I2C ADDRESS */
+/* ============================= */
+
+/*!
+ * @brief This API intialises NT3H NFC device.
+ * 
+ * @param[in] dev : Pointer to nt3h device structure.
+ * 
+ * @return API status code.
+ */
 nt3h_status_t nt3h_init(nt3h_dev_t *dev);
-nt3h_status_t nt3h_deinit(nt3h_dev_t *dev);
-/* =========================================== */
 
-/* ========= Memory IO Functions ========== */
-/* Read & Write bytes to EEPROM and SRAM memory of NFC device */
-nt3h_status_t nt3h_write_bytes(nt3h_dev_t *dev, uint16_t addr, uint16_t offset, uint8_t *data, size_t len);
+/*!
+ * @brief This API de-intialises NT3H NFC device.
+ * 
+ * @param[in] dev : Pointer to nt3h device structure.
+ * 
+ * @return API status code.
+ */
+nt3h_status_t nt3h_deinit(nt3h_dev_t *dev);
+
+/*!
+ * @brief This API reads a number of bytes from NT3H memory.
+ *
+ * @note User must ensure the memory region does not include session registers.
+ * 
+ * @param[in]    dev : Pointer to device structure.
+ * @param[in]   addr : Memory address (I2C side).
+ * @param[in] offset : Byte offset within memory address.
+ * @param[out]  data : Pointer to buffer in which to store bytes.
+ * @param[in]    len : Number of bytes to read.
+ * 
+ * @return API status code.
+ */
 nt3h_status_t nt3h_read_bytes(nt3h_dev_t *dev, uint16_t addr, uint16_t offset, uint8_t *data, size_t len);
+
+/*!
+ * @brief This API write a number of bytes to NT3H memory.
+ *
+ * @note User must ensure the memory region does not include session registers.
+ * 
+ * @param[in]    dev : Pointer to device structure.
+ * @param[in]   addr : Memory address (I2C side).
+ * @param[in] offset : Byte offset within memory address.
+ * @param[out]  data : Pointer to buffer containing data to write.
+ * @param[in]    len : Number of bytes to write.
+ * 
+ * @return API status code.
+ */
+nt3h_status_t nt3h_write_bytes(nt3h_dev_t *dev, uint16_t addr, uint16_t offset, uint8_t *data, size_t len);
+
+/*!
+ * @brief This API erases a number of bytes in NT3H memory.
+ *
+ * @note User must ensure the memory region does not include session registers.
+ * 
+ * @param[in]    dev : Pointer to device structure.
+ * @param[in]   addr : Memory address (I2C side).
+ * @param[in] offset : Byte offset within memory address.
+ * @param[in]    len : Number of bytes to erase.
+ * 
+ * @return API status code.
+ */
 nt3h_status_t nt3h_erase_bytes(nt3h_dev_t *dev, uint16_t addr, uint16_t offset, size_t len);
 
-/* Read & Write to Session Registers of NFC device */
+/*!
+ * @brief This API reads the 1-byte value of a Session register within NT3H memory.
+ *
+ * @param[in]   dev : Pointer to device structure.
+ * @param[in]   reg : Register to read.
+ * @param[out] data : Pointer to memory in which to store register value.
+ * 
+ * @return API status code.
+ */
 nt3h_status_t nt3h_read_register(nt3h_dev_t *dev, uint8_t reg, uint8_t *data);
+
+/*!
+ * @brief This API writes the 1-byte value to a Session register within NT3H memory.
+ *
+ * @param[in]   dev : Pointer to device structure.
+ * @param[in]   reg : Register to write to.
+ * @param[in]  mask : Mask of current register value before write.
+ * @param[out] data : Register value to write.
+ * 
+ * @return API status code.
+ */
 nt3h_status_t nt3h_write_register(nt3h_dev_t *dev, uint8_t reg, uint8_t mask, uint8_t data);
-/* Read & Write to Configuration Registers of NFC device */
+
+/*!
+ * @brief This API reads the 1-byte value of a Configuration register within NT3H memory.
+ *
+ * @param[in]   dev : Pointer to device structure.
+ * @param[in]   reg : Register to read.
+ * @param[out] data : Pointer to memory in which to store register value.
+ * 
+ * @return API status code.
+ */
 nt3h_status_t nt3h_read_config(nt3h_dev_t *dev, uint8_t reg, uint8_t *data);
+
+/*!
+ * @brief This API writes the 1-byte value to a Configuration register within NT3H memory.
+ *
+ * @param[in]   dev : Pointer to device structure.
+ * @param[in]   reg : Register to write to.
+ * @param[in]  mask : Mask of current register value before write.
+ * @param[out] data : Register value to write.
+ * 
+ * @return Result of API execution status.
+ */
 nt3h_status_t nt3h_write_config(nt3h_dev_t *dev, uint8_t reg, uint8_t mask, uint8_t data);
-/* ========================================== */
 
-/* Helpful getters and setters for particular fields in NFC memory */
-nt3h_status_t nt3h_read_field_present(nt3h_dev_t *dev, uint8_t *data);
-nt3h_status_t nt3h_write_addr(nt3h_dev_t *dev, uint8_t addr); /* Write 'Addr' (I2C Address) field */
-nt3h_status_t nt3h_read_cc(nt3h_dev_t *dev);    /* Read 'Capability Container' field */
-nt3h_status_t nt3h_write_cc(nt3h_dev_t *dev, NFC_CCTypeDef *cc);     /* Write 'Capability Container' field */
-/* ========================================== */
+/*!
+ * @brief This API reads the Capability Container memory region of the device.
+ *
+ * @param[in]   dev : Pointer to device structure.
+ * @param[in]    cc : Pointer to capability container to store values.
+ * 
+ * @return Result of API execution status.
+ */
+nt3h_status_t nt3h_read_capability_cont(nt3h_dev_t *dev, capability_cont_t *cc);
+
+/*!
+ * @brief This API writes the Capability Container memory region of the device.
+ *
+ * @param[in]   dev : Pointer to device structure.
+ * @param[in]    cc : Pointer to capability container containing values.
+ * 
+ * @return Result of API execution status.
+ */
+nt3h_status_t nt3h_write_capability_cont(nt3h_dev_t *dev, capability_cont_t *cc);
+
+// nt3h_status_t nt3h_write_addr(nt3h_dev_t *dev, uint8_t addr); /* Write 'Addr' (I2C Address) field */
+
+/*!
+ * @brief This API checks if there is currently an NFC field present on the NFC antenna.
+ *
+ * @note The functionality of the field present pin of the NT3H decice is configurable.
+ * 
+ * @param[in] dev : Pointer to NT3H device structure.
+ * @param[out] is_present : Pointer to boolean to store result.
+ * 
+ * @return Result of API exeuction status.
+ */
+nt3h_status_t nt3h_read_field_present(nt3h_dev_t *dev, bool *is_present);
+
+/*!
+ * @brief This API checks the device is responding to I2C commands.
+ *
+ * @param[in]   dev : Pointer to device structure.
+ * 
+ * @return Result of API execution status.
+ */
+nt3h_status_t nt3h_check(nt3h_dev_t *dev);
 
 
 
-// nt3h_status_t nt3h_IRQHandler(void);
-
-// nt3h_status_t nt3h_check(struct nt3h_dev *dev);
 
 // /* Helpful toString log print functions */
 // #if DEBUG_NFC == 1
