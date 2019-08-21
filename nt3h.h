@@ -40,6 +40,8 @@ extern "C" {
 #endif
 
 #include "nt3h_defs.h"
+
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -156,25 +158,25 @@ nt3h_status_t nt3h_read_config(nt3h_dev_t *dev, uint8_t reg, uint8_t *data);
  */
 nt3h_status_t nt3h_write_config(nt3h_dev_t *dev, uint8_t reg, uint8_t mask, uint8_t data);
 
-/*!
- * @brief This API reads the Capability Container memory region of the device.
- *
- * @param[in]   dev : Pointer to device structure.
- * @param[in]    cc : Pointer to capability container to store values.
- * 
- * @return Result of API execution status.
- */
-nt3h_status_t nt3h_read_capability_cont(nt3h_dev_t *dev, capability_cont_t *cc);
+// /*!
+//  * @brief This API reads the Capability Container memory region of the device.
+//  *
+//  * @param[in]   dev : Pointer to device structure.
+//  * @param[in]    cc : Pointer to capability container to store values.
+//  * 
+//  * @return Result of API execution status.
+//  */
+// nt3h_status_t nt3h_read_capability_cont(nt3h_dev_t *dev, capability_cont_t *cc);
 
-/*!
- * @brief This API writes the Capability Container memory region of the device.
- *
- * @param[in]   dev : Pointer to device structure.
- * @param[in]    cc : Pointer to capability container containing values.
- * 
- * @return Result of API execution status.
- */
-nt3h_status_t nt3h_write_capability_cont(nt3h_dev_t *dev, capability_cont_t *cc);
+// /*!
+//  * @brief This API writes the Capability Container memory region of the device.
+//  *
+//  * @param[in]   dev : Pointer to device structure.
+//  * @param[in]    cc : Pointer to capability container containing values.
+//  * 
+//  * @return Result of API execution status.
+//  */
+// nt3h_status_t nt3h_write_capability_cont(nt3h_dev_t *dev, capability_cont_t *cc);
 
 // nt3h_status_t nt3h_write_addr(nt3h_dev_t *dev, uint8_t addr); /* Write 'Addr' (I2C Address) field */
 
@@ -188,7 +190,8 @@ nt3h_status_t nt3h_write_capability_cont(nt3h_dev_t *dev, capability_cont_t *cc)
  * 
  * @return Result of API exeuction status.
  */
-nt3h_status_t nt3h_read_field_present(nt3h_dev_t *dev, bool *is_present);
+nt3h_status_t nt3h_is_field_present(nt3h_dev_t *dev, bool *is_field_present);
+
 
 /*!
  * @brief This API checks the device is responding to I2C commands.

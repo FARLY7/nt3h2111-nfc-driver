@@ -43,6 +43,7 @@ extern "C" {
  * @brief Include header files
  */
 #include <stdint.h>
+#include <stddef.h>
 
 
 #define NTAG_1K
@@ -54,17 +55,25 @@ extern "C" {
 #define NT3H_MEM_BLOCK_SESSION_REGS_1K  0xFE
 
 /* Factory default value of memory block 0 */
-#define NT3H_FACTORY_VALUE_BLOCK_0  { 0xAA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, \
-                                      0x00, 0x00, 0x00, 0x00, 0xE1, 0x10, 0x6D, 0x00 }
+#define NT3H_FACTORY_VALUE_BLOCK_0  { 0x04, 0x00, 0x00, 0x00, \
+                                      0x00, 0x00, 0x00, 0x00, \
+                                      0x00, 0x00, 0x00, 0x00, \
+                                      0xE1, 0x10, 0x6D, 0x00 }
 
-#define NT3H_FACTORY_VALUE_BLOCK_56 { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, \
-                                      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF }
+#define NT3H_FACTORY_VALUE_BLOCK_56 { 0x00, 0x00, 0x00, 0x00, \
+                                      0x00, 0x00, 0x00, 0x00, \
+                                      0x00, 0x00, 0x00, 0x00, \
+                                      0x00, 0x00, 0x00, 0xFF }
 
-#define NT3H_FACTORY_VALUE_BLOCK_57 { 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, \
-                                      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }
+#define NT3H_FACTORY_VALUE_BLOCK_57 { 0x00, 0x00, 0x00, 0x00, \
+                                      0xFF, 0xFF, 0xFF, 0xFF, \
+                                      0x00, 0x00, 0x00, 0x00, \
+                                      0x00, 0x00, 0x00, 0x00 }
 
-#define NT3H_FACTORY_VALUE_BLOCK_58 { 0x01, 0x00, 0xF8, 0x48, 0x08, 0x01, 0x00, 0x00, \
-                                      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }
+#define NT3H_FACTORY_VALUE_BLOCK_58 { 0x01, 0x00, 0xF8, 0x48, \
+                                      0x08, 0x01, 0x00, 0x00, \
+                                      0x00, 0x00, 0x00, 0x00, \
+                                      0x00, 0x00, 0x00, 0x00 }
 
 
 /*!
@@ -80,29 +89,27 @@ typedef enum {
 /*!
  * @brief Type declarations
  */
-//typedef void (*nt3h_com_mem_func_ptr_t)(uint8_t dev_id, uint8_t *data, uint32_t len);
-//typedef void (*nt3h_com_mem_func_ptr_t)(uint8_t dev_id, uint8_t addr, uint8_t *data, uint32_t len);
-typedef nt3h_status_t (*nt3h_com_func_ptr_t)(uint8_t dev_id, uint8_t *data, uint32_t len);
-typedef void (*nt3h_delay_ms_func_ptr_t)(uint32_t period_ms);
+typedef nt3h_status_t (*nt3h_com_func_ptr_t)(uint8_t dev_id, uint8_t *data, size_t len);
+typedef void          (*nt3h_delay_ms_func_ptr_t)(uint32_t period_ms);
 
-/*
- * @brief Structure representation of Capability Container values.
- */
-typedef struct {
+// /*
+//  * @brief Structure representation of Capability Container values.
+//  */
+// typedef struct {
     
-    /*  */
-    uint8_t magic_number;
+//     /*  */
+//     uint8_t magic_number;
     
-    /*  */
-    uint8_t version;
+//     /*  */
+//     uint8_t version;
     
-    /*  */
-    uint8_t mlen;
+//     /*  */
+//     uint8_t mlen;
     
-    /*  */
-    uint8_t access_control;
+//     /*  */
+//     uint8_t access_control;
 
-} capability_cont_t;
+// } capability_cont_t;
 
 
 /*
@@ -112,15 +119,6 @@ typedef struct {
 
     /* Device ID */
     uint16_t dev_id;
-
-    /* Password used to change read/write permissions */
-    uint8_t password[16];
-
-    /*! Perhaps just use enum to differentiate between mem and normal */
-    // /* User defined I2C write function pointer */
-    // nt3h_com_func_ptr_t mem_write;
-    // /* User defined I2C read function pointer */
-    // nt3h_com_func_ptr_t mem_read;
 
     /* User defined I2C write function pointer */
     nt3h_com_func_ptr_t write;

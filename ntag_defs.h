@@ -15,7 +15,7 @@
  */
 
 #define NTAG_MAX_WRITE_DELAY_MS     10
-#define NTAG_I2C_BLOCK_SIZE         0x10
+#define NTAG_I2C_BLOCK_SIZE         16
 
 #ifndef NULL
 #define NULL 0
@@ -25,6 +25,7 @@
 ///
 /// Memory addresses as seen from I2C perspective.
 #define NTAG_MEM_ADRR_I2C_ADDRESS           0x00
+
 #define NTAG_MEM_BLOCK_START_USER_MEMORY    0x01
 #define NTAG_MEM_ADDR_START_USER_MEMORY     (NTAG_MEM_BLOCK_START_USER_MEMORY * NTAG_I2C_BLOCK_SIZE)
 
@@ -76,13 +77,13 @@
 #define NTAG_NS_REG_MASK_EEPROM_WR_BUSY     0x02
 #define NTAG_NS_REG_MASK_RF_FIELD_PRESENT   0x01
 
-//----------------------------------------------------------------------
-///
-/// Error codes
-#define NTAG_ERR_OK              0x00
-#define NTAG_ERR_COMMUNICATION  -0x01
-#define NTAG_ERR_BUFF_OVERFLOW  -0x02
-#define NTAG_ERR_INIT_FAILED    -0x03
-#define NTAG_ERR_INVALID_PARAM  -0x09
+// //----------------------------------------------------------------------
+// ///
+// /// Error codes
+// #define NTAG_ERR_OK              0x00
+// #define NTAG_ERR_COMMUNICATION  -0x01
+// #define NTAG_ERR_BUFF_OVERFLOW  -0x02
+// #define NTAG_ERR_INIT_FAILED    -0x03
+// #define NTAG_ERR_INVALID_PARAM  -0x09
 
 #endif // NTAG_DEFINES_H
